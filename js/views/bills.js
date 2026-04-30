@@ -77,7 +77,11 @@ export default function bills() {
         ),
         el("div", { class: "table-scroll" },
           filtered.length === 0
-            ? el("div", { class: "empty" }, el("div", { class: "ico" }, "↧"), "No bills match. Add one to start tracking expenses.")
+            ? el("div", { class: "empty" },
+                el("div", { class: "ico" }, "↧"),
+                el("div", {}, "No bills match. Add one to start tracking expenses."),
+                el("div", { style: { marginTop: 12 } }, el("button", { class: "btn primary", onclick: () => openBillForm() }, "+ Add a bill")),
+              )
             : (function () {
                 const t = el("table", { class: "data" });
                 const arrow = (k) => sortKey === k ? (sortDir === "asc" ? " ↑" : " ↓") : "";

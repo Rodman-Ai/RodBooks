@@ -5,6 +5,8 @@ import { Deals, Contacts, Bills } from "./store.js";
 import { go } from "./router.js";
 import { openDealForm, openBillForm, openContactForm, openQuickAdd } from "./forms.js";
 import { openModal } from "./ui.js";
+import { getRecent, toggleDensity } from "./prefs.js";
+import { openHelp } from "./help.js";
 
 const PAGES = [
   { label: "Dashboard", path: "/", hint: "Home" },
@@ -27,6 +29,8 @@ const COMMANDS = [
   { label: "New contact", action: () => openContactForm(), kind: "Action" },
   { label: "Quick add (NL)", action: () => openQuickAdd(), kind: "Action" },
   { label: "Toggle theme", action: () => import("./theme.js").then((m) => m.toggleTheme()), kind: "Action" },
+  { label: "Toggle density (comfortable / compact)", action: () => toggleDensity(), kind: "Action" },
+  { label: "Show keyboard shortcuts", action: () => openHelp(), kind: "Action" },
   { label: "Export JSON", action: async () => {
       const { exportJSON, downloadFile } = await import("./store.js");
       downloadFile(`rodbooks-${new Date().toISOString().slice(0, 10)}.json`, exportJSON(), "application/json");
@@ -69,6 +73,10 @@ export function openPalette() {
     };
 
     const out = [];
+    if (!ql) {
+      // Empty query: top of list = recently viewed.
+      getRecent().slice(0, 5).forEach((r) => out.push({ kind: "Recent", label: r.label, sub: r.path, sc: 1000, run: () => go(r.path) }));
+    }
     PAGES.forEach((p) => { const sc = score(p.label); if (sc >= 0) out.push({ kind: "Page", label: p.label, sub: p.hint || p.path, sc, run: () => go(p.path) }); });
     COMMANDS.forEach((c) => { const sc = score(c.label); if (sc >= 0) out.push({ kind: c.kind, label: c.label, sub: "", sc, run: c.action }); });
 
