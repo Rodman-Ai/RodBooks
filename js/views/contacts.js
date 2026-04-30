@@ -65,7 +65,11 @@ export default function contacts() {
         ),
         el("div", { class: "table-scroll" },
           filtered.length === 0
-            ? el("div", { class: "empty" }, el("div", { class: "ico" }, "☺"), "No contacts yet.")
+            ? el("div", { class: "empty" },
+                el("div", { class: "ico" }, "☺"),
+                el("div", {}, "No contacts yet."),
+                el("div", { style: { marginTop: 12 } }, el("button", { class: "btn primary", onclick: () => openContactForm() }, "+ Add a contact")),
+              )
             : (function () {
                 const t = el("table", { class: "data" });
                 t.append(el("thead", {}, el("tr", {},

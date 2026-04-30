@@ -115,7 +115,10 @@ export default function dashboard() {
     const trendCard = el("div", { class: "card" },
       el("div", { class: "spread" },
         el("h3", {}, "Income vs. expenses · last 24 months"),
-        el("div", { class: "small muted" }, "Click a bar to drill into that month"),
+        el("div", { class: "row small muted" },
+          el("span", {}, "Click a bar to drill into that month"),
+          el("button", { class: "btn sm ghost", title: "Download PNG", onclick: () => downloadChart("ch-trend", "income-vs-expenses") }, "↓ PNG"),
+        ),
       ),
       el("div", { class: "chart-wrap" }, el("canvas", { id: "ch-trend" })),
     );
@@ -416,6 +419,15 @@ export default function dashboard() {
   const unsub = subscribe(render);
   render();
   return { node, unmount: () => { unsub(); charts.forEach((c) => { try { c.destroy(); } catch {} }); } };
+}
+
+function downloadChart(canvasId, name) {
+  const c = document.getElementById(canvasId);
+  if (!c) return;
+  const a = document.createElement("a");
+  a.download = `${name}-${new Date().toISOString().slice(0, 10)}.png`;
+  a.href = c.toDataURL("image/png");
+  a.click();
 }
 
 function pill(label, active, onclick) {

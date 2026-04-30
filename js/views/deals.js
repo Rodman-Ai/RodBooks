@@ -1,9 +1,10 @@
 import { el, fmtMoney, fmtDate, fmtDateShort, netFee, dealStatus, serviceMeta, escHtml, debounce, todayISO, parseDate, parseSearchOperators, dealStageAge } from "../utils.js";
 import { Deals, Contacts, subscribe, downloadFile, toCSV } from "../store.js";
-import { go } from "../router.js";
+import { go, getQuery, setQuery } from "../router.js";
 import { openDealForm } from "../forms.js";
 import { confirmDialog, toast } from "../ui.js";
 import { dealStageTracker } from "./timeline.js";
+import { getSavedViews, saveView, deleteView } from "../prefs.js";
 
 const FILTER_KEY = "rodbooks:filters:deals";
 
@@ -12,9 +13,21 @@ function loadFilters() {
 }
 function saveFilters(f) { localStorage.setItem(FILTER_KEY, JSON.stringify(f)); }
 
-export function dealsList() {
+export function dealsList(_params, ctx = {}) {
   const node = el("div", {});
-  let filters = { search: "", status: "all", year: "all", svc: "all", sort: "serviceDate:desc", ...loadFilters() };
+  // Filter precedence: URL query > localStorage > defaults
+  const urlQ = ctx.query || getQuery();
+  let filters = {
+    search: "", status: "all", year: "all", svc: "all", sort: "serviceDate:desc",
+    ...loadFilters(),
+    ...Object.fromEntries(Object.entries(urlQ).filter(([k]) => ["search","status","year","svc","sort"].includes(k))),
+  };
+  let selected = new Set();
+
+  const persist = () => {
+    saveFilters(filters);
+    setQuery({ search: filters.search || "", status: filters.status === "all" ? "" : filters.status, year: filters.year === "all" ? "" : filters.year, svc: filters.svc === "all" ? "" : filters.svc, sort: filters.sort === "serviceDate:desc" ? "" : filters.sort }, { replace: true });
+  };
 
   const renderTable = () => {
     const all = Deals.all();
@@ -63,32 +76,125 @@ export function dealsList() {
           el("div", { class: "sub" }, `${filtered.length} of ${all.length} · Net total ${fmtMoney(totalNet)} · Unpaid ${fmtMoney(totalUnpaid)}`),
         ),
         el("div", { class: "row" },
+          el("button", { class: "btn", onclick: () => copyShareLink() }, "Share view"),
           el("button", { class: "btn", onclick: exportCsv }, "Export CSV"),
           el("button", { class: "btn primary", onclick: () => openDealForm() }, "+ New deal"),
         ),
       ),
+      savedViewsBar(),
       el("div", { class: "table-wrap" },
         el("div", { class: "table-toolbar" },
-          searchInput(filters.search, (v) => { filters.search = v; saveFilters(filters); renderTable(); }),
+          searchInput(filters.search, (v) => { filters.search = v; persist(); renderTable(); }),
           select(filters.status, [
             { value: "all", label: "All status" },
             { value: "paid", label: "Paid only" },
             { value: "unpaid", label: "Unpaid" },
             { value: "invoiced", label: "Invoiced" },
             { value: "no_invoice", label: "No invoice" },
-          ], (v) => { filters.status = v; saveFilters(filters); renderTable(); }),
+          ], (v) => { filters.status = v; persist(); renderTable(); }),
           select(filters.year, [{ value: "all", label: "All years" }, ...years.map((y) => ({ value: y, label: y }))],
-            (v) => { filters.year = v; saveFilters(filters); renderTable(); }),
+            (v) => { filters.year = v; persist(); renderTable(); }),
           select(filters.svc, [{ value: "all", label: "All services" }, ...services.map((s) => ({ value: s, label: serviceMeta(s).label }))],
-            (v) => { filters.svc = v; saveFilters(filters); renderTable(); }),
+            (v) => { filters.svc = v; persist(); renderTable(); }),
+          el("div", { class: "spacer" }),
+          el("button", { class: "btn sm", onclick: () => promptSaveView() }, "Save view"),
         ),
-        el("div", { class: "table-scroll" }, table(filtered, sortKey, sortDir, (k) => {
-          const dir = filters.sort === `${k}:asc` ? "desc" : "asc";
-          filters.sort = `${k}:${dir}`; saveFilters(filters); renderTable();
+        bulkBar(filtered),
+        el("div", { class: "table-scroll" }, table(filtered, sortKey, sortDir, selected, {
+          onSort: (k) => {
+            const dir = filters.sort === `${k}:asc` ? "desc" : "asc";
+            filters.sort = `${k}:${dir}`; persist(); renderTable();
+          },
+          onToggle: (id, on) => { if (on) selected.add(id); else selected.delete(id); renderTable(); },
+          onSelectAll: (ids, on) => { if (on) ids.forEach((i) => selected.add(i)); else ids.forEach((i) => selected.delete(i)); renderTable(); },
+          onTogglePaid: (d) => {
+            Deals.save({ id: d.id, paid: !d.paid, paidDate: !d.paid ? (d.paidDate || todayISO()) : "", paidAmount: !d.paid ? (d.paidAmount || netFee(d)) : 0 });
+            toast(!d.paid ? "Marked paid" : "Marked unpaid");
+          },
         })),
       ),
     );
   };
+
+  function savedViewsBar() {
+    const views = getSavedViews();
+    if (!views.length) return null;
+    const wrap = el("div", { class: "saved-views" },
+      el("span", { class: "small muted", style: { marginRight: 6 } }, "Views:"),
+      ...views.map((v) =>
+        el("span", { class: "view-chip" },
+          el("button", { class: "view-chip-btn", onclick: () => { filters = { ...filters, ...v.filters }; persist(); renderTable(); toast(`Loaded "${v.name}"`); } }, v.name),
+          el("button", { class: "view-chip-x", title: "Delete view", onclick: async () => {
+            const ok = await confirmDialog({ title: `Delete view "${v.name}"?`, danger: true, confirmLabel: "Delete" });
+            if (ok) { deleteView(v.name); renderTable(); }
+          } }, "×"),
+        ),
+      ),
+    );
+    return wrap;
+  }
+
+  function promptSaveView() {
+    const name = prompt("Name this view");
+    if (!name) return;
+    saveView(name.trim(), {
+      search: filters.search,
+      status: filters.status,
+      year: filters.year,
+      svc: filters.svc,
+      sort: filters.sort,
+    });
+    toast(`View "${name}" saved`);
+    renderTable();
+  }
+
+  function copyShareLink() {
+    const url = location.href;
+    navigator.clipboard.writeText(url).then(() => toast("Shareable link copied"), () => toast("Couldn't copy", "warn"));
+  }
+
+  function bulkBar(filtered) {
+    if (!selected.size) return null;
+    const ids = filtered.filter((d) => selected.has(d.id));
+    const total = ids.reduce((s, d) => s + netFee(d), 0);
+    return el("div", { class: "bulk-bar" },
+      el("span", { class: "small" }, `${selected.size} selected · ${fmtMoney(total)}`),
+      el("div", { class: "spacer" }),
+      el("button", { class: "btn sm", onclick: () => bulkMarkPaid(ids) }, "Mark paid"),
+      el("button", { class: "btn sm", onclick: () => bulkExport(ids) }, "Export selected"),
+      el("button", { class: "btn sm danger", onclick: () => bulkDelete(ids) }, "Delete"),
+      el("button", { class: "btn sm ghost", onclick: () => { selected.clear(); renderTable(); } }, "Clear"),
+    );
+  }
+
+  async function bulkMarkPaid(ds) {
+    const unpaid = ds.filter((d) => !d.paid);
+    if (!unpaid.length) { toast("Nothing to mark"); return; }
+    const ok = await confirmDialog({ title: `Mark ${unpaid.length} deal(s) paid?`, confirmLabel: "Mark paid" });
+    if (!ok) return;
+    unpaid.forEach((d) => Deals.save({ id: d.id, paid: true, paidDate: d.paidDate || todayISO(), paidAmount: d.paidAmount || netFee(d) }));
+    toast(`Marked ${unpaid.length} paid`);
+    selected.clear();
+  }
+
+  async function bulkDelete(ds) {
+    const ok = await confirmDialog({ title: `Delete ${ds.length} deal(s)?`, body: "This cannot be undone (snapshot first if unsure).", danger: true, confirmLabel: "Delete" });
+    if (!ok) return;
+    ds.forEach((d) => Deals.remove(d.id));
+    toast(`Deleted ${ds.length}`);
+    selected.clear();
+  }
+
+  function bulkExport(ds) {
+    const csv = toCSV(ds, [
+      { key: "company", label: "Company" }, { key: "svc", label: "Service" }, { key: "fee", label: "Fee" },
+      { key: "paidAmount", label: "Paid Amount" }, { key: "paid", label: "Paid", value: (d) => d.paid ? "yes" : "no" },
+      { key: "paidDate", label: "Paid Date" }, { key: "serviceDate", label: "Service Date" },
+      { key: "postDate", label: "Post Date" }, { key: "invoiceNumber", label: "Invoice #" }, { key: "notes", label: "Notes" },
+    ]);
+    downloadFile(`rodbooks-deals-selected-${todayISO()}.csv`, csv, "text/csv");
+    toast(`Exported ${ds.length}`);
+  }
 
   function exportCsv() {
     const all = Deals.all();
@@ -141,9 +247,15 @@ function select(value, options, onChange) {
   return s;
 }
 
-function table(rows, sortKey, sortDir, onSort) {
+function table(rows, sortKey, sortDir, selected, h) {
   if (!rows.length) {
-    return el("div", { class: "empty" }, el("div", { class: "ico" }, "★"), "No deals match your filters.");
+    return el("div", { class: "empty" },
+      el("div", { class: "ico" }, "★"),
+      el("div", {}, "No deals match your filters."),
+      el("div", { style: { marginTop: 12 } },
+        el("button", { class: "btn primary", onclick: () => openDealForm() }, "+ Add a deal"),
+      ),
+    );
   }
   const arrow = (k) => sortKey === k ? (sortDir === "asc" ? " ↑" : " ↓") : "";
   const headers = [
@@ -159,23 +271,42 @@ function table(rows, sortKey, sortDir, onSort) {
     { k: "invoiceNumber", l: "Invoice" },
   ];
   const t = el("table", { class: "data" });
-  const thead = el("thead", {}, el("tr", {}, ...headers.map((h) =>
-    el("th", { onclick: () => onSort(h.k), class: h.num ? "num" : "" }, h.l + arrow(h.k)),
-  )));
+  const ids = rows.map((r) => r.id);
+  const allChecked = ids.every((id) => selected.has(id));
+  const someChecked = !allChecked && ids.some((id) => selected.has(id));
+  const headCheck = el("input", { type: "checkbox", "aria-label": "Select all" });
+  headCheck.checked = allChecked;
+  headCheck.indeterminate = someChecked;
+  headCheck.addEventListener("click", (e) => { e.stopPropagation(); h.onSelectAll(ids, headCheck.checked); });
+  const thead = el("thead", {}, el("tr", {},
+    el("th", { class: "check-col", onclick: (e) => e.stopPropagation() }, headCheck),
+    ...headers.map((hh) =>
+      el("th", { onclick: () => h.onSort(hh.k), class: hh.num ? "num" : "" }, hh.l + arrow(hh.k)),
+    ),
+  ));
   const tbody = el("tbody", {});
   for (const d of rows) {
     const status = dealStatus(d);
     const sm = serviceMeta(d.svc);
     const age = dealStageAge(d);
     const ageWarn = age.days != null && age.days > 30 && !d.paid;
-    const tr = el("tr", { onclick: () => go(`/deals/${d.id}`) },
+    const checkbox = el("input", { type: "checkbox", "aria-label": "Select row" });
+    checkbox.checked = selected.has(d.id);
+    checkbox.addEventListener("click", (e) => { e.stopPropagation(); h.onToggle(d.id, checkbox.checked); });
+    const statusPill = el("span", {
+      class: `pill ${status.cls} clickable`,
+      title: "Click to toggle paid",
+      onclick: (e) => { e.stopPropagation(); h.onTogglePaid(d); },
+    }, status.label);
+    const tr = el("tr", { onclick: () => go(`/deals/${d.id}`), class: selected.has(d.id) ? "row-selected" : "" },
+      el("td", { class: "check-col", onclick: (e) => e.stopPropagation() }, checkbox),
       el("td", {}, d.company || "—"),
       el("td", {}, el("span", { class: `pill ${sm.cls}` }, sm.label)),
       el("td", { class: "small muted" }, fmtDateShort(d.serviceDate)),
       el("td", { class: "small muted" }, fmtDateShort(d.postDate)),
       el("td", { class: "small muted" }, fmtDateShort(d.draftDue)),
       el("td", { class: "num" }, fmtMoney(netFee(d))),
-      el("td", {}, el("span", { class: `pill ${status.cls}` }, status.label)),
+      el("td", {}, statusPill),
       el("td", { class: "small", style: ageWarn ? { color: "var(--warn)" } : { color: "var(--muted)" } }, age.days != null ? `${age.stage} · ${age.days}d` : age.stage),
       el("td", { class: "small muted" }, fmtDateShort(d.paidDate)),
       el("td", { class: "small muted" }, d.invoiceNumber || ""),

@@ -1,9 +1,12 @@
 import { register, start, go } from "./router.js";
-import { getState, loadSampleData, Deals } from "./store.js";
+import { getState, loadSampleData, Deals, Bills, Contacts, subscribe } from "./store.js";
 import { openQuickAdd } from "./forms.js";
 import { applyTheme } from "./theme.js";
 import { isLockEnabled, isUnlocked, showLockScreen } from "./lock.js";
 import { openPalette } from "./palette.js";
+import { applyDensity, pushRecent } from "./prefs.js";
+import { openHelp } from "./help.js";
+import { generateProposals } from "./automations.js";
 
 import dashboard from "./views/dashboard.js";
 import { dealsList, dealDetail } from "./views/deals.js";
@@ -31,8 +34,9 @@ import activityView from "./views/activity.js";
   }
 })();
 
-// Apply theme + lock gate before showing content
+// Apply theme + density + lock gate before showing content
 applyTheme();
+applyDensity();
 if (isLockEnabled() && !isUnlocked()) showLockScreen();
 
 // Routes
@@ -78,12 +82,43 @@ start({
       a.classList.toggle("active", a.dataset.route === baseRoute);
     });
     // page title
-    const title = TITLES[path] || (baseRoute === "deals" && "Deal") || "RodBooks";
+    const title = TITLES[path] || (baseRoute === "deals" && "Deal") || (baseRoute === "brand" && "Brand") || "RodBooks";
     document.getElementById("pageTitle").textContent = title;
     // close mobile menu after nav
     document.body.classList.remove("menu-open");
+    // track recently visited (skip dashboard root to avoid noise)
+    if (path !== "/" && path !== "/dashboard") {
+      pushRecent({ kind: "Page", label: title + (baseRoute === "deals" || baseRoute === "brand" ? " — " + decodeURIComponent(path.split("/")[2] || "") : ""), path });
+    }
   },
 });
+
+// Sidebar nav badges: small counts next to each section.
+function refreshNavBadges() {
+  const counts = {
+    deals: Deals.all().length,
+    pipeline: Deals.all().filter((d) => !d.paid).length,
+    invoices: Deals.all().filter((d) => d.invoiceNumber || d.invoiceDate || d.invoiceUrl).length,
+    bills: Bills.all().length,
+    contacts: Contacts.all().length,
+    automations: generateProposals().length,
+  };
+  document.querySelectorAll("#primary-nav a[data-route]").forEach((a) => {
+    const k = a.dataset.route;
+    let badge = a.querySelector(".nav-badge");
+    if (!(k in counts)) { badge?.remove(); return; }
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "nav-badge";
+      a.append(badge);
+    }
+    badge.textContent = counts[k] || "";
+    badge.style.display = counts[k] ? "" : "none";
+    badge.classList.toggle("alert", k === "automations" && counts[k] > 0);
+  });
+}
+subscribe(refreshNavBadges);
+refreshNavBadges();
 
 // Mobile menu
 const menuBtn = document.getElementById("menuBtn");
@@ -96,6 +131,13 @@ document.addEventListener("click", (e) => {
 
 // Quick add
 document.getElementById("quickAddBtn").addEventListener("click", () => openQuickAdd());
+// Topbar buttons
+document.getElementById("searchBtn")?.addEventListener("click", () => openPalette());
+document.getElementById("helpBtn")?.addEventListener("click", () => openHelp());
+document.getElementById("densityBtn")?.addEventListener("click", async () => {
+  const { toggleDensity } = await import("./prefs.js");
+  toggleDensity();
+});
 
 // Keyboard shortcuts
 document.addEventListener("keydown", (e) => {
@@ -106,6 +148,7 @@ document.addEventListener("keydown", (e) => {
     return;
   }
   if (e.target.matches("input, textarea, select, [contenteditable]")) return;
+  if (e.key === "?" || (e.shiftKey && e.key === "/")) { e.preventDefault(); openHelp(); return; }
   if (e.key === "n" && !e.metaKey && !e.ctrlKey) { openQuickAdd(); }
   if (e.key === "/" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); openPalette(); }
   if (e.key === "g") {
