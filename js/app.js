@@ -23,7 +23,7 @@ import activityView from "./views/activity.js";
 (async function firstRun() {
   const s = getState();
   const empty = !s.deals.length && !s.bills.length && !s.contacts.length;
-  const seedKey = "rodbooks:seeded:v2";
+  const seedKey = "rodbooks:seeded:v3";
   const seeded = localStorage.getItem(seedKey);
   if (empty && !seeded) {
     await loadSampleData();

@@ -67,7 +67,7 @@ function yearProfile(year) {
     2022: { count: 28, avgFee: 850,  feeStd: 350,  pPaid: 0.93, pPartner: 0.15 },
     2023: { count: 46, avgFee: 1300, feeStd: 500,  pPaid: 0.92, pPartner: 0.20 },
     2024: { count: 72, avgFee: 1900, feeStd: 700,  pPaid: 0.90, pPartner: 0.25 },
-    2025: { count: 96, avgFee: 2500, feeStd: 900,  pPaid: 0.88, pPartner: 0.28 },
+    2025: { count: 138, avgFee: 2650, feeStd: 950, pPaid: 0.88, pPartner: 0.28, q4Spike: 1.4 },
     2026: { count: 32, avgFee: 2900, feeStd: 1100, pPaid: 0.55, pPartner: 0.30 }, // YTD, many unpaid
   };
   return profiles[year];
@@ -119,7 +119,14 @@ function generateDeals(contactsByBrand) {
     for (let i = 0; i < p.count; i++) {
       const brand = pick(brands);
       const contact = contactsByBrand[brand];
-      const month = year === thisYear ? rint(1, Math.min(12, thisMonth)) : rint(1, 12);
+      let month;
+      if (year === thisYear) {
+        month = rint(1, Math.min(12, thisMonth));
+      } else if (p.q4Spike && rand() < 0.4) {
+        month = rint(10, 12); // 40% of deals concentrated in Q4
+      } else {
+        month = rint(1, 12);
+      }
       const serviceDate = dateInMonth(year, month);
       const sd = new Date(serviceDate);
       // Post date 0-21 days after service
@@ -171,6 +178,147 @@ function generateDeals(contactsByBrand) {
         updatedAt: Date.now(),
       });
     }
+  }
+
+  // ----- 2025 highlights: retainer, flagship videos, cancellations, repost cadence -----
+  // Pick a "retainer" brand: 11 monthly posts at $2,400 each (Feb–Dec 2025)
+  const retainerBrand = brands.find((b) => /labs|stack|flow|hub|cloud|grid/i.test(b)) || pick(brands);
+  const retainerContact = contactsByBrand[retainerBrand];
+  for (let m = 2; m <= 12; m++) {
+    const sd = new Date(2025, m - 1, rint(3, 14));
+    const post = new Date(sd.getTime() + rint(5, 14) * 86400000);
+    const isPaid = m <= 10 || chance(0.5);
+    deals.push({
+      id: uid(),
+      contactId: retainerContact.id,
+      company: retainerBrand,
+      svc: "p",
+      fee: 2400,
+      partnerFeePct: 0,
+      paidAmount: isPaid ? 2400 : 0,
+      paid: isPaid,
+      paidDate: isPaid ? isoFromDate(new Date(sd.getTime() + rint(14, 35) * 86400000)) : "",
+      payMethod: isPaid ? "Brex eft" : "",
+      serviceDate: isoFromDate(sd),
+      postDate: isoFromDate(post),
+      draftDue: isoFromDate(new Date(sd.getTime() - 4 * 86400000)),
+      contractUrl: m === 2 ? `https://docs.example.com/contracts/${uid()}` : `https://docs.example.com/retainer/${retainerBrand.toLowerCase().replace(/[^a-z]/g, "")}-2025`,
+      briefUrl: `https://docs.example.com/briefs/${uid()}`,
+      draftUrl: `https://drive.example.com/drafts/${uid()}`,
+      portalUrl: `https://portal.${retainerBrand.toLowerCase().replace(/[^a-z]/g, "")}.com`,
+      notesUrl: "",
+      invoiceNumber: `RB-RET-${m.toString().padStart(2, "0")}`,
+      invoiceDate: isoFromDate(sd),
+      invoiceUrl: `https://invoices.example.com/RB-RET-${m.toString().padStart(2, "0")}`,
+      invoiceTo: `${retainerBrand}, Inc.`,
+      transactionId: isPaid ? `tx_${uid().slice(0, 12)}` : "",
+      notes: m === 2 ? "Retainer kickoff — 11mo · $2400/mo" : "Retainer cycle",
+      year: 2025,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  }
+
+  // Three flagship video deals (Q2/Q3/Q4) at premium fees
+  const flagships = [
+    { svc: "v", fee: 9500, month: 4, title: "Annual product launch" },
+    { svc: "v", fee: 12000, month: 8, title: "Co-marketed deep dive" },
+    { svc: "v", fee: 15000, month: 11, title: "Black-Friday hero spot" },
+  ];
+  for (const f of flagships) {
+    const brand = pick(brands.filter((b) => b !== retainerBrand));
+    const contact = contactsByBrand[brand];
+    const sd = new Date(2025, f.month - 1, rint(5, 18));
+    const post = new Date(sd.getTime() + rint(10, 28) * 86400000);
+    const partnerPct = chance(0.5) ? 5 : 0;
+    deals.push({
+      id: uid(),
+      contactId: contact.id,
+      company: brand,
+      svc: f.svc,
+      fee: f.fee,
+      partnerFeePct: partnerPct,
+      paidAmount: f.fee * (1 - partnerPct / 100),
+      paid: true,
+      paidDate: isoFromDate(new Date(sd.getTime() + rint(30, 70) * 86400000)),
+      payMethod: pick(["Wise", "limelight", "ACH", "Brex eft"]),
+      serviceDate: isoFromDate(sd),
+      postDate: isoFromDate(post),
+      draftDue: isoFromDate(new Date(sd.getTime() - 7 * 86400000)),
+      contractUrl: `https://docs.example.com/contracts/flagship-${uid()}`,
+      briefUrl: `https://docs.example.com/briefs/${uid()}`,
+      draftUrl: `https://drive.example.com/drafts/${uid()}`,
+      portalUrl: "",
+      notesUrl: "",
+      invoiceNumber: `RB-FL-${f.month}-25`,
+      invoiceDate: isoFromDate(sd),
+      invoiceUrl: `https://invoices.example.com/flagship-${f.month}-25`,
+      invoiceTo: `${brand}, Inc.`,
+      transactionId: `tx_${uid().slice(0, 12)}`,
+      notes: f.title,
+      year: 2025,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  }
+
+  // Cancelled / killed deals (svc:x) — useful for filter/funnel testing
+  for (let i = 0; i < 4; i++) {
+    const brand = pick(brands);
+    const contact = contactsByBrand[brand];
+    const sd = new Date(2025, rint(0, 11), rint(1, 27));
+    deals.push({
+      id: uid(),
+      contactId: contact.id,
+      company: brand,
+      svc: "x",
+      fee: 0,
+      partnerFeePct: 0,
+      paidAmount: 0,
+      paid: false,
+      paidDate: "", payMethod: "",
+      serviceDate: isoFromDate(sd),
+      postDate: "", draftDue: "",
+      contractUrl: chance(0.5) ? `https://docs.example.com/contracts/${uid()}` : "",
+      briefUrl: chance(0.4) ? `https://docs.example.com/briefs/${uid()}` : "",
+      draftUrl: "", portalUrl: "", notesUrl: "",
+      invoiceNumber: "", invoiceDate: "", invoiceUrl: "", invoiceTo: "",
+      transactionId: "",
+      notes: pick(["killed by brand legal", "scope changed, paused", "budget cut Q3", "ghosted after brief"]),
+      year: 2025,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  }
+
+  // Cluster of small repost / quote-tweet deals (cheap, fast)
+  for (let i = 0; i < 8; i++) {
+    const brand = pick(brands);
+    const contact = contactsByBrand[brand];
+    const sd = new Date(2025, rint(0, 11), rint(1, 27));
+    const fee = pick([200, 300, 400, 500, 750]);
+    const isPaid = chance(0.85);
+    deals.push({
+      id: uid(),
+      contactId: contact.id,
+      company: brand,
+      svc: pick(["qrt", "rt", "qrt rt", "c+l"]),
+      fee,
+      partnerFeePct: 0,
+      paidAmount: isPaid ? fee : 0,
+      paid: isPaid,
+      paidDate: isPaid ? isoFromDate(new Date(sd.getTime() + rint(7, 30) * 86400000)) : "",
+      payMethod: isPaid ? pick(["Stripe", "PayPal", "Wise"]) : "",
+      serviceDate: isoFromDate(sd),
+      postDate: isoFromDate(new Date(sd.getTime() + rint(0, 3) * 86400000)),
+      draftDue: "",
+      contractUrl: "", briefUrl: "", draftUrl: "", portalUrl: "", notesUrl: "",
+      invoiceNumber: "", invoiceDate: "", invoiceUrl: "", invoiceTo: "",
+      transactionId: isPaid ? `tx_${uid().slice(0, 12)}` : "",
+      notes: "", year: 2025,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
   }
 
   // Add a few "in flight" 2026 deals near the post date
