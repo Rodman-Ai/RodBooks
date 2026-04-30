@@ -144,6 +144,84 @@ export function el(tag, attrs = {}, ...children) {
   return e;
 }
 
+// Parse search operators like:
+//   brand:Descript paid:no >1000 svc:v
+// Returns { text, filters: { brand?, paid?, svc?, min?, max?, year? } }
+export function parseSearchOperators(q) {
+  const out = { text: "", filters: {} };
+  if (!q) return out;
+  const tokens = String(q).match(/\S+/g) || [];
+  const free = [];
+  for (const tok of tokens) {
+    const colon = tok.match(/^([a-z]+):(.+)$/i);
+    if (colon) {
+      const [, k, v] = colon;
+      const key = k.toLowerCase();
+      if (key === "brand" || key === "company") out.filters.brand = v.toLowerCase();
+      else if (key === "paid") out.filters.paid = /^(yes|y|true|1)$/i.test(v);
+      else if (key === "unpaid") out.filters.paid = false;
+      else if (key === "svc" || key === "type") out.filters.svc = v.toLowerCase();
+      else if (key === "year") out.filters.year = v;
+      else if (key === "method" || key === "via") out.filters.method = v.toLowerCase();
+      else free.push(tok);
+    } else if (/^>\d/.test(tok)) {
+      out.filters.min = +tok.slice(1);
+    } else if (/^<\d/.test(tok)) {
+      out.filters.max = +tok.slice(1);
+    } else {
+      free.push(tok);
+    }
+  }
+  out.text = free.join(" ");
+  return out;
+}
+
+// Days between an ISO date and now (positive = past, negative = future).
+export function daysAgo(iso) {
+  if (!iso) return null;
+  const d = parseDate(iso);
+  if (!d) return null;
+  return Math.round((Date.now() - d.getTime()) / 86400000);
+}
+
+// Stage age: how many days the deal has been at its current stage.
+export function dealStageAge(d) {
+  // ordered list of stage signals; the latest non-empty defines current stage.
+  const stages = [
+    { key: "paidDate", name: "Paid" },
+    { key: "invoiceDate", name: "Invoiced" },
+    { key: "postDate", name: "Posted" },
+    { key: "draftUrl", name: "Draft sent", isDate: false },
+    { key: "draftDue", name: "Draft due" },
+    { key: "briefUrl", name: "Brief", isDate: false },
+    { key: "contractUrl", name: "Contract", isDate: false },
+  ];
+  for (const s of stages) {
+    if (d[s.key]) {
+      if (s.isDate === false) {
+        // no date for this stage; fall back to updatedAt
+        return { stage: s.name, days: Math.round((Date.now() - (d.updatedAt || Date.now())) / 86400000) };
+      }
+      return { stage: s.name, days: daysAgo(d[s.key]) };
+    }
+  }
+  return { stage: "Pending", days: Math.round((Date.now() - (d.createdAt || Date.now())) / 86400000) };
+}
+
+// Brand warmth: 0-100 score from recency, frequency, payment health.
+export function brandWarmth(deals) {
+  if (!deals.length) return 0;
+  const now = Date.now();
+  const sorted = [...deals].sort((a, b) => (b.serviceDate || "").localeCompare(a.serviceDate || ""));
+  const lastMs = sorted[0]?.serviceDate ? new Date(sorted[0].serviceDate).getTime() : 0;
+  const daysSince = lastMs ? Math.max(0, (now - lastMs) / 86400000) : 999;
+  const recencyScore = Math.max(0, 1 - daysSince / 180); // 6 months → 0
+  const freqScore = Math.min(1, deals.length / 6);
+  const paid = deals.filter((d) => d.paid).length;
+  const paidScore = paid / deals.length;
+  return Math.round((recencyScore * 0.5 + freqScore * 0.3 + paidScore * 0.2) * 100);
+}
+
 export function initials(name) {
   if (!name) return "?";
   const parts = String(name).trim().split(/\s+/).slice(0, 2);

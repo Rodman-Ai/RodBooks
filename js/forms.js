@@ -4,6 +4,7 @@ import { el } from "./utils.js";
 import { Contacts, Deals, Bills, Settings } from "./store.js";
 import { SERVICE_OPTIONS, todayISO, netFee, fmtMoney } from "./utils.js";
 import { openModal, toast } from "./ui.js";
+import { parseDealText } from "./nl.js";
 
 function field(label, control, opts = {}) {
   return el("div", { class: `field ${opts.full ? "full" : ""}` }, el("label", {}, label), control);
@@ -287,12 +288,90 @@ export function openContactForm(contact) {
 }
 
 export function openQuickAdd() {
+  const nlInput = el("input", {
+    class: "input",
+    placeholder: 'e.g. "Lumira AI $1500 video due May 15 paid"',
+    style: { fontSize: "15px", padding: "10px 12px" },
+  });
+  const preview = el("div", { class: "small muted", style: { minHeight: "20px" } });
+  const onInput = () => {
+    const parsed = parseDealText(nlInput.value);
+    if (!parsed || !nlInput.value.trim()) { preview.textContent = ""; return; }
+    const parts = [];
+    if (parsed.company) parts.push(`brand: ${parsed.company}`);
+    if (parsed.fee) parts.push(`fee: $${parsed.fee}`);
+    if (parsed.svc) parts.push(`type: ${parsed.svc}`);
+    if (parsed.draftDue) parts.push(`due: ${parsed.draftDue}`);
+    if (parsed.serviceDate) parts.push(`service: ${parsed.serviceDate}`);
+    if (parsed.postDate) parts.push(`post: ${parsed.postDate}`);
+    if (parsed.paid) parts.push("paid");
+    preview.textContent = parts.length ? "→ " + parts.join("  ·  ") : "(no fields detected — opens a blank form)";
+  };
+  nlInput.addEventListener("input", onInput);
+  nlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") openParsedDeal(); });
+
+  const openParsedDeal = () => {
+    const parsed = parseDealText(nlInput.value) || {};
+    close();
+    openDealForm({
+      company: parsed.company || "",
+      svc: parsed.svc || "p",
+      fee: parsed.fee || 0,
+      partnerFeePct: parsed.partnerFeePct || 0,
+      paid: !!parsed.paid,
+      paidDate: parsed.paid ? todayISO() : "",
+      draftDue: parsed.draftDue || "",
+      serviceDate: parsed.serviceDate || todayISO(),
+      postDate: parsed.postDate || "",
+    });
+  };
+
+  const pasteImport = () => {
+    const ta = el("textarea", { class: "textarea", placeholder: "Paste a brief, contract, or email here. We'll try to extract a deal.", style: { minHeight: "120px" } });
+    let m2;
+    const submit = () => {
+      const parsed = parseDealText(ta.value) || {};
+      m2.close(); close();
+      openDealForm({
+        company: parsed.company || "",
+        svc: parsed.svc || "p",
+        fee: parsed.fee || 0,
+        partnerFeePct: parsed.partnerFeePct || 0,
+        draftDue: parsed.draftDue || "",
+        serviceDate: parsed.serviceDate || todayISO(),
+        postDate: parsed.postDate || "",
+        notes: ta.value.length > 200 ? ta.value.slice(0, 200) + "…" : ta.value,
+      });
+    };
+    const footer = el("div", { class: "row" },
+      el("div", { class: "spacer" }),
+      el("button", { class: "btn", onclick: () => m2.close() }, "Cancel"),
+      el("button", { class: "btn primary", onclick: submit }, "Extract & open"),
+    );
+    m2 = openModal({ title: "Paste to extract", body: ta, footer });
+    setTimeout(() => ta.focus(), 30);
+  };
+
   const body = el("div", { class: "stack" },
-    el("button", { class: "btn primary", onclick: () => { close(); openDealForm(); } }, "★  New brand deal"),
-    el("button", { class: "btn", onclick: () => { close(); openBillForm(); } }, "↧  New bill / expense"),
-    el("button", { class: "btn", onclick: () => { close(); openContactForm(); } }, "☺  New contact"),
+    el("div", { class: "field" },
+      el("label", {}, "Type a deal in plain English"),
+      nlInput, preview,
+    ),
+    el("div", { class: "row" },
+      el("button", { class: "btn primary", onclick: openParsedDeal }, "Open deal form"),
+      el("button", { class: "btn", onclick: pasteImport }, "Paste from email…"),
+    ),
+    el("div", { style: { borderTop: "1px solid var(--line)", margin: "12px 0", paddingTop: "12px" } },
+      el("div", { class: "small muted", style: { marginBottom: 8 } }, "Or jump to:"),
+      el("div", { class: "row", style: { flexWrap: "wrap", gap: "8px" } },
+        el("button", { class: "btn", onclick: () => { close(); openDealForm(); } }, "★  New deal"),
+        el("button", { class: "btn", onclick: () => { close(); openBillForm(); } }, "↧  New bill"),
+        el("button", { class: "btn", onclick: () => { close(); openContactForm(); } }, "☺  New contact"),
+      ),
+    ),
   );
   let modal;
   const close = () => modal?.close();
   modal = openModal({ title: "Quick add", body });
+  setTimeout(() => nlInput.focus(), 30);
 }
