@@ -9,15 +9,19 @@ import bills from "./views/bills.js";
 import contacts from "./views/contacts.js";
 import reports from "./views/reports.js";
 import settingsView from "./views/settings.js";
+import brandPage from "./views/brand.js";
+import timelineView from "./views/timeline.js";
+import automationsView from "./views/automations.js";
 
 // First-run: if there's no data at all, offer sample data automatically (once).
-(function firstRun() {
+(async function firstRun() {
   const s = getState();
   const empty = !s.deals.length && !s.bills.length && !s.contacts.length;
-  const seeded = localStorage.getItem("rodbooks:seeded");
+  const seedKey = "rodbooks:seeded:v2";
+  const seeded = localStorage.getItem(seedKey);
   if (empty && !seeded) {
-    loadSampleData();
-    localStorage.setItem("rodbooks:seeded", "1");
+    await loadSampleData();
+    localStorage.setItem(seedKey, "1");
   }
 })();
 
@@ -26,9 +30,12 @@ register("/", () => dashboard());
 register("/dashboard", () => dashboard());
 register("/deals", () => dealsList());
 register("/deals/:id", (p) => dealDetail(p));
+register("/brand/:name", (p) => brandPage(p));
 register("/invoices", () => invoices());
 register("/bills", () => bills());
 register("/contacts", () => contacts());
+register("/timeline", () => timelineView());
+register("/automations", () => automationsView());
 register("/reports", () => reports());
 register("/settings", () => settingsView());
 
@@ -39,6 +46,8 @@ const TITLES = {
   "/invoices": "Invoices",
   "/bills": "Bills & Expenses",
   "/contacts": "Contacts",
+  "/timeline": "Timeline",
+  "/automations": "Automations",
   "/reports": "Reports",
   "/settings": "Settings",
 };
@@ -78,7 +87,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "n" && !e.metaKey && !e.ctrlKey) { openQuickAdd(); }
   if (e.key === "g") {
     const next = (ev) => {
-      const map = { d: "/", b: "/deals", i: "/invoices", e: "/bills", c: "/contacts", r: "/reports", s: "/settings" };
+      const map = { d: "/", b: "/deals", i: "/invoices", e: "/bills", c: "/contacts", t: "/timeline", a: "/automations", r: "/reports", s: "/settings" };
       const r = map[ev.key];
       if (r) go(r);
       document.removeEventListener("keydown", next, true);

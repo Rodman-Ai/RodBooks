@@ -58,7 +58,7 @@ export default function settings() {
         body: "This replaces your current data with sample brand deals and expenses (handy for demos).",
         confirmLabel: "Load sample",
       });
-      if (ok) { loadSampleData(); toast("Sample data loaded"); }
+      if (ok) { await loadSampleData(); toast("Sample data loaded"); }
     };
     const onReset = async () => {
       const ok = await confirmDialog({

@@ -3,6 +3,7 @@ import { Deals, Contacts, subscribe, downloadFile, toCSV } from "../store.js";
 import { go } from "../router.js";
 import { openDealForm } from "../forms.js";
 import { confirmDialog, toast } from "../ui.js";
+import { dealStageTracker } from "./timeline.js";
 
 const FILTER_KEY = "rodbooks:filters:deals";
 
@@ -201,6 +202,7 @@ export function dealDetail({ id }) {
           ),
         ),
         el("div", { class: "row" },
+          el("a", { class: "btn", href: `#/brand/${encodeURIComponent(d.company)}` }, "Open brand →"),
           !d.paid && el("button", {
             class: "btn primary",
             onclick: () => {
@@ -223,6 +225,10 @@ export function dealDetail({ id }) {
         kv("Partner fee", d.partnerFeePct ? `${d.partnerFeePct}%` : "—"),
         kv("Net", fmtMoney(netFee(d))),
         kv("Paid", d.paid ? fmtMoney(d.paidAmount || netFee(d)) : "—"),
+      ),
+      el("div", { class: "card" },
+        el("h3", {}, "Lifecycle"),
+        dealStageTracker(d),
       ),
       el("div", { class: "card" },
         el("h3", {}, "Timeline"),

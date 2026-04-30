@@ -163,125 +163,20 @@ export function resetAll() {
   write();
 }
 
-export function loadSampleData() {
-  // Sample data based on the user's spreadsheet (anonymized & approximated).
+export async function loadSampleData() {
+  // Generate a rich synthetic dataset (fictional brands, 6 yrs of growth).
   cache = defaults();
-  const c = (name, t = "brand", extra = {}) => Contacts.ensure(name, { type: t, ...extra });
-  c("Zen Media", "brand");
-  c("Anything AI", "brand");
-  c("Runable", "brand");
-  c("Airwallex", "brand", { email: "kevin.sloan@airwallex.com" });
-  c("Descript", "brand", { email: "kevin.sloan@descript.com" });
-  c("Beforesunset", "brand");
-  c("WisprFlow", "brand");
-  c("Linq", "brand", { email: "nathanael@linq.com" });
-  c("Climaty AI", "brand");
-  c("Player Zero", "brand", { email: "vijay@playerzero.ai" });
-  c("Alson AI", "brand");
-  c("Visimore", "brand");
-  c("SurveyMonkey", "brand");
-  c("Coderabbit", "brand", { email: "mayur.jain@coderabbit.ai" });
-  c("Delve", "brand");
-  c("Pythagora", "brand");
-  c("Moxt", "brand");
-  c("Datacouch", "brand");
-  c("Orcanets", "brand");
-  c("Redactiq", "brand");
-  c("Sentra", "brand");
-  c("Powtoon", "brand");
-
-  const sample = [
-    { company: "Zen Media", svc: "v", fee: 1100, paidAmount: 1100, paid: true, paidDate: "2026-01-20", payMethod: "limelight", year: 2026, serviceDate: "2026-01-26" },
-    { company: "Anything AI", svc: "p", fee: 900, paid: false, year: 2026, serviceDate: "2026-01-12", postDate: "2026-01-19" },
-    { company: "Runable", svc: "p", fee: 700, paid: false, paidDate: "2026-02-11", year: 2026, serviceDate: "2026-01-19", postDate: "2026-02-11" },
-    { company: "Airwallex", svc: "p", fee: 900, partnerFeePct: 3.5, paidAmount: 868, paid: false, year: 2026, serviceDate: "2026-03-09" },
-    { company: "Descript", svc: "p", fee: 1100, partnerFeePct: 3.5, paidAmount: 1096.5, paid: true, paidDate: "2026-04-23", payMethod: "partnerstack", year: 2026, serviceDate: "2026-01-30", postDate: "2026-03-02" },
-    { company: "Descript", svc: "p", fee: 900, paid: false, year: 2026, serviceDate: "2026-01-30", postDate: "2026-04-28" },
-    { company: "Descript", svc: "v", fee: 1300, paid: false, year: 2026, serviceDate: "2026-01-30" },
-    { company: "Beforesunset", svc: "p", fee: 850, paid: false, year: 2026 },
-    { company: "Beforesunset", svc: "p", fee: 850, paid: false, year: 2026 },
-    { company: "WisprFlow", svc: "p", fee: 900, partnerFeePct: 2.93, paidAmount: 873.6, paid: true, paidDate: "2026-02-26", payMethod: "Woo", year: 2026, serviceDate: "2026-02-25" },
-    { company: "Linq", svc: "", fee: 1000, paid: false, payMethod: "limelight", year: 2026, serviceDate: "2026-02-11" },
-    { company: "Climaty AI", svc: "", fee: 0, paid: false, year: 2026 },
-    { company: "Sales flow", svc: "", fee: 1000, paid: false, year: 2026, notes: "may end" },
-    { company: "Player Zero", svc: "p", fee: 900, paidAmount: 900, paid: true, paidDate: "2026-03-31", payMethod: "Brex eft", year: 2026, serviceDate: "2026-02-16", postDate: "2026-03-16" },
-    { company: "Alson AI", svc: "", fee: 0, paid: false, year: 2026, notes: "april" },
-    { company: "Visimore", svc: "p", fee: 900, paid: false, year: 2026, notes: "delay" },
-    { company: "Runable", svc: "p prep", fee: 350, paid: false, paidDate: "2026-03-19", year: 2026, serviceDate: "2026-03-03" },
-    { company: "Runable", svc: "postp", fee: 350, paid: false, paidDate: "2026-03-19", year: 2026, serviceDate: "2026-03-03" },
-    { company: "SurveyMonkey", svc: "v", fee: 1500, paidAmount: 1500, paid: true, paidDate: "2026-04-16", payMethod: "limelight", year: 2026, serviceDate: "2026-03-12", postDate: "2026-04-27" },
-    { company: "Coderabbit", svc: "qrt", fee: 300, paid: false, year: 2026, serviceDate: "2026-03-17" },
-    { company: "Delve", svc: "p", fee: 1000, paid: false, year: 2026 },
-    { company: "Pythagora", svc: "x", fee: 0, paid: false, year: 2026, serviceDate: "2026-03-31" },
-    { company: "Moxt", svc: "x", fee: 0, paid: false, year: 2026 },
-    { company: "Orcanets", svc: "incentive", fee: 50, paid: false, year: 2026, serviceDate: "2026-04-07" },
-    { company: "Redactiq", svc: "c+l", fee: 100, paid: false, year: 2026, serviceDate: "2026-04-08" },
-    { company: "Sentra", svc: "qrt rt", fee: 400, partnerFeePct: 15, paid: false, year: 2026, serviceDate: "2026-04-09" },
-    { company: "Powtoon", svc: "v", fee: 1100, paid: false, year: 2026, serviceDate: "2026-05-02" },
-  ];
-
-  for (const d of sample) {
-    const contact = c(d.company);
-    Deals.save({
-      contactId: contact?.id,
-      company: d.company,
-      svc: d.svc || "",
-      fee: d.fee || 0,
-      partnerFeePct: d.partnerFeePct || 0,
-      paidAmount: d.paidAmount || 0,
-      paid: !!d.paid,
-      paidDate: d.paidDate || "",
-      payMethod: d.payMethod || "",
-      serviceDate: d.serviceDate || "",
-      postDate: d.postDate || "",
-      draftDue: d.draftDue || "",
-      year: d.year || new Date().getFullYear(),
-      contractUrl: "",
-      briefUrl: "",
-      draftUrl: "",
-      portalUrl: "",
-      notesUrl: "",
-      invoiceUrl: "",
-      invoiceNumber: "",
-      invoiceDate: "",
-      transactionId: "",
-      invoiceTo: "",
-      notes: d.notes || "",
-    });
-  }
-
-  // Sample expenses
-  const exp = [
-    { vendor: "Adobe Creative Cloud", category: "Software", amount: 59.99, date: "2026-01-05", paid: true, payMethod: "Brex card", recurring: "monthly" },
-    { vendor: "Final Cut Pro", category: "Software", amount: 299, date: "2026-01-12", paid: true, payMethod: "Brex card" },
-    { vendor: "Notion", category: "Software", amount: 10, date: "2026-02-01", paid: true, payMethod: "Brex card", recurring: "monthly" },
-    { vendor: "Riverside.fm", category: "Software", amount: 24, date: "2026-02-08", paid: true, payMethod: "Brex card", recurring: "monthly" },
-    { vendor: "B&H Photo - Lens", category: "Equipment", amount: 1299, date: "2026-02-20", paid: true, payMethod: "Brex card" },
-    { vendor: "Backblaze", category: "Software", amount: 9, date: "2026-03-01", paid: true, payMethod: "Brex card", recurring: "monthly" },
-    { vendor: "Travel - NYC creator summit", category: "Travel", amount: 612.40, date: "2026-03-14", paid: true, payMethod: "Brex card" },
-    { vendor: "Coffee meetings", category: "Meals", amount: 87.50, date: "2026-03-22", paid: true, payMethod: "Brex card" },
-    { vendor: "Internet (home office %)", category: "Office", amount: 45, date: "2026-04-01", paid: true, payMethod: "ACH", recurring: "monthly" },
-  ];
-  for (const e of exp) {
-    Bills.save({
-      vendor: e.vendor,
-      category: e.category,
-      amount: e.amount,
-      date: e.date,
-      paid: e.paid,
-      paidDate: e.paid ? e.date : "",
-      payMethod: e.payMethod || "",
-      recurring: e.recurring || "",
-      notes: "",
-      receiptUrl: "",
-    });
-  }
+  const { buildSyntheticDataset } = await import("./synth.js");
+  const { contacts, deals, bills } = buildSyntheticDataset();
+  cache.contacts = contacts;
+  cache.deals = deals;
+  cache.bills = bills;
 
   Settings.update({
     businessName: "Your Creator LLC",
     email: "you@yourdomain.com",
     invoicePrefix: "RB",
-    nextInvoiceNumber: 1024,
+    nextInvoiceNumber: 3000,
   });
 
   write();
