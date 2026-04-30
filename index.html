@@ -12,6 +12,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="stylesheet" href="styles.css" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js" defer></script>
   </head>
   <body>
     <div id="app">
@@ -26,11 +27,14 @@
         <nav class="nav" id="primary-nav">
           <a href="#/" data-route="dashboard"><span class="i">▦</span><span>Dashboard</span></a>
           <a href="#/deals" data-route="deals"><span class="i">★</span><span>Brand Deals</span></a>
+          <a href="#/pipeline" data-route="pipeline"><span class="i">▤</span><span>Pipeline</span></a>
           <a href="#/timeline" data-route="timeline"><span class="i">◷</span><span>Timeline</span></a>
           <a href="#/invoices" data-route="invoices"><span class="i">⎈</span><span>Invoices</span></a>
           <a href="#/bills" data-route="bills"><span class="i">↧</span><span>Bills</span></a>
+          <a href="#/mileage" data-route="mileage"><span class="i">↗</span><span>Mileage</span></a>
           <a href="#/contacts" data-route="contacts"><span class="i">☺</span><span>Contacts</span></a>
           <a href="#/automations" data-route="automations"><span class="i">⚡</span><span>Automations</span></a>
+          <a href="#/activity" data-route="activity"><span class="i">↻</span><span>Activity</span></a>
           <a href="#/reports" data-route="reports"><span class="i">∑</span><span>Reports</span></a>
           <a href="#/settings" data-route="settings"><span class="i">⚙</span><span>Settings</span></a>
         </nav>
@@ -51,7 +55,7 @@
 
       <nav class="tabbar" aria-label="Sections">
         <a href="#/" data-route="dashboard"><span class="i">▦</span><span>Home</span></a>
-        <a href="#/deals" data-route="deals"><span class="i">★</span><span>Deals</span></a>
+        <a href="#/pipeline" data-route="pipeline"><span class="i">▤</span><span>Pipeline</span></a>
         <a href="#/timeline" data-route="timeline"><span class="i">◷</span><span>Timeline</span></a>
         <a href="#/automations" data-route="automations"><span class="i">⚡</span><span>Auto</span></a>
         <a href="#/reports" data-route="reports"><span class="i">∑</span><span>Reports</span></a>

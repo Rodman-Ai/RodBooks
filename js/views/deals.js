@@ -1,4 +1,4 @@
-import { el, fmtMoney, fmtDate, fmtDateShort, netFee, dealStatus, serviceMeta, escHtml, debounce, todayISO, parseDate } from "../utils.js";
+import { el, fmtMoney, fmtDate, fmtDateShort, netFee, dealStatus, serviceMeta, escHtml, debounce, todayISO, parseDate, parseSearchOperators, dealStageAge } from "../utils.js";
 import { Deals, Contacts, subscribe, downloadFile, toCSV } from "../store.js";
 import { go } from "../router.js";
 import { openDealForm } from "../forms.js";
@@ -21,12 +21,20 @@ export function dealsList() {
     const years = Array.from(new Set(all.map((d) => (d.serviceDate || d.invoiceDate || d.paidDate || "").slice(0, 4)).filter(Boolean))).sort().reverse();
     const services = Array.from(new Set(all.map((d) => d.svc).filter(Boolean)));
 
+    const parsed = parseSearchOperators(filters.search);
     const filtered = all.filter((d) => {
-      if (filters.search) {
-        const q = filters.search.toLowerCase();
+      if (parsed.text) {
         const hay = `${d.company} ${d.notes} ${d.invoiceNumber} ${d.payMethod}`.toLowerCase();
-        if (!hay.includes(q)) return false;
+        if (!hay.includes(parsed.text.toLowerCase())) return false;
       }
+      const f = parsed.filters;
+      if (f.brand && !(d.company || "").toLowerCase().includes(f.brand)) return false;
+      if (f.svc && (d.svc || "").toLowerCase() !== f.svc) return false;
+      if (typeof f.paid === "boolean" && d.paid !== f.paid) return false;
+      if (f.year && (d.serviceDate || d.invoiceDate || d.paidDate || "").slice(0, 4) !== f.year) return false;
+      if (f.method && !(d.payMethod || "").toLowerCase().includes(f.method)) return false;
+      if (f.min != null && netFee(d) < f.min) return false;
+      if (f.max != null && netFee(d) > f.max) return false;
       if (filters.status === "paid" && !d.paid) return false;
       if (filters.status === "unpaid" && d.paid) return false;
       if (filters.status === "invoiced" && !(d.invoiceDate || d.invoiceNumber)) return false;
@@ -118,7 +126,7 @@ export function dealsList() {
 }
 
 function searchInput(value, onChange) {
-  const i = el("input", { class: "input search", placeholder: "Search company, notes, invoice…", value });
+  const i = el("input", { class: "input search", placeholder: "Search… try: brand:lumira paid:no >1000", value, title: "Operators: brand:NAME paid:yes/no svc:v year:2025 method:stripe >500 <2000" });
   i.addEventListener("input", debounce((e) => onChange(e.target.value), 150));
   return i;
 }
@@ -146,6 +154,7 @@ function table(rows, sortKey, sortDir, onSort) {
     { k: "draftDue", l: "Draft Due" },
     { k: "fee", l: "Net", num: true },
     { k: "paid", l: "Status" },
+    { k: "stageAge", l: "Stage age" },
     { k: "paidDate", l: "Paid" },
     { k: "invoiceNumber", l: "Invoice" },
   ];
@@ -157,6 +166,8 @@ function table(rows, sortKey, sortDir, onSort) {
   for (const d of rows) {
     const status = dealStatus(d);
     const sm = serviceMeta(d.svc);
+    const age = dealStageAge(d);
+    const ageWarn = age.days != null && age.days > 30 && !d.paid;
     const tr = el("tr", { onclick: () => go(`/deals/${d.id}`) },
       el("td", {}, d.company || "—"),
       el("td", {}, el("span", { class: `pill ${sm.cls}` }, sm.label)),
@@ -165,6 +176,7 @@ function table(rows, sortKey, sortDir, onSort) {
       el("td", { class: "small muted" }, fmtDateShort(d.draftDue)),
       el("td", { class: "num" }, fmtMoney(netFee(d))),
       el("td", {}, el("span", { class: `pill ${status.cls}` }, status.label)),
+      el("td", { class: "small", style: ageWarn ? { color: "var(--warn)" } : { color: "var(--muted)" } }, age.days != null ? `${age.stage} · ${age.days}d` : age.stage),
       el("td", { class: "small muted" }, fmtDateShort(d.paidDate)),
       el("td", { class: "small muted" }, d.invoiceNumber || ""),
     );
@@ -203,6 +215,10 @@ export function dealDetail({ id }) {
         ),
         el("div", { class: "row" },
           el("a", { class: "btn", href: `#/brand/${encodeURIComponent(d.company)}` }, "Open brand →"),
+          el("button", { class: "btn", onclick: () => {
+            const { id, paid, paidDate, paidAmount, invoiceNumber, invoiceDate, invoiceUrl, transactionId, ...rest } = d;
+            openDealForm({ ...rest, paid: false, paidDate: "", paidAmount: 0, invoiceNumber: "", invoiceDate: "", invoiceUrl: "", transactionId: "", serviceDate: todayISO(), notes: (d.notes || "") + (d.notes ? " · " : "") + "(repeat)" });
+          } }, "Clone / repeat"),
           !d.paid && el("button", {
             class: "btn primary",
             onclick: () => {

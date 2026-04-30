@@ -2,7 +2,8 @@ import { el, fmtMoney, fmtDate, netFee, escHtml, debounce } from "../utils.js";
 import { Deals, Settings, Contacts, subscribe } from "../store.js";
 import { go } from "../router.js";
 import { openDealForm } from "../forms.js";
-import { openModal } from "../ui.js";
+import { openModal, toast } from "../ui.js";
+import { downloadIcs } from "../ics.js";
 
 export default function invoices() {
   const node = el("div", {});
@@ -37,6 +38,7 @@ export default function invoices() {
           el("div", { class: "sub" }, `${filtered.length} · Paid ${fmtMoney(totalPaid)} · Outstanding ${fmtMoney(totalUnpaid)}`),
         ),
         el("div", { class: "row" },
+          el("button", { class: "btn", onclick: () => { downloadIcs(Deals.all().filter((d) => d.invoiceDate || d.paidDate), "rodbooks-invoices.ics"); toast("Calendar exported"); } }, "Export .ics"),
           el("button", { class: "btn primary", onclick: () => openDealForm() }, "+ New invoice"),
         ),
       ),
@@ -177,11 +179,30 @@ export function previewInvoice(deal) {
     </div>
   `;
   const body = el("div", { html: styled });
+  const filename = `invoice-${deal.invoiceNumber || deal.company || "draft"}.pdf`.replace(/\s+/g, "-");
   const footer = el("div", { class: "row" },
     el("div", { class: "spacer" }),
+    el("button", { class: "btn", onclick: () => copyInvoice(body) }, "Copy"),
+    el("button", { class: "btn", onclick: () => downloadInvoicePDF(body.firstElementChild, filename) }, "Download PDF"),
     el("button", { class: "btn", onclick: () => printInvoice(styled) }, "Print"),
   );
   openModal({ title: `Invoice ${deal.invoiceNumber || ""}`.trim(), body, footer, wide: true });
+}
+
+function copyInvoice(body) {
+  const text = body.innerText;
+  navigator.clipboard.writeText(text).then(() => toast("Copied"), () => toast("Copy failed", "warn"));
+}
+
+function downloadInvoicePDF(element, filename) {
+  if (!window.html2pdf) { toast("PDF library not loaded yet", "warn"); return; }
+  window.html2pdf().set({
+    margin: 10,
+    filename,
+    html2canvas: { scale: 2, backgroundColor: "#ffffff" },
+    jsPDF: { unit: "mm", format: "letter", orientation: "portrait" },
+  }).from(element).save();
+  toast("Generating PDF…");
 }
 
 function printInvoice(html) {

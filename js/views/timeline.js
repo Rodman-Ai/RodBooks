@@ -3,6 +3,8 @@
 import { el, fmtMoney, fmtDateShort, parseDate, netFee, dealStatus, initials, serviceMeta } from "../utils.js";
 import { Deals, subscribe } from "../store.js";
 import { go } from "../router.js";
+import { downloadIcs } from "../ics.js";
+import { toast } from "../ui.js";
 
 const STAGE_META = {
   draftDue: { label: "Draft due", cls: "amber" },
@@ -29,6 +31,7 @@ export default function timelineView() {
           el("div", { class: "sub" }, mode === "month" ? "Calendar of deal milestones" : `Gantt-style overview · ${cursor.getFullYear()}`),
         ),
         el("div", { class: "row" },
+          el("button", { class: "btn", onclick: () => { downloadIcs(Deals.all(), "rodbooks-deals.ics"); toast("Calendar exported"); } }, "Export .ics"),
           el("button", { class: `btn ${mode === "month" ? "primary" : ""}`, onclick: () => { mode = "month"; render(); } }, "Month"),
           el("button", { class: `btn ${mode === "year" ? "primary" : ""}`, onclick: () => { mode = "year"; render(); } }, "Year"),
         ),

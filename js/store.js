@@ -11,15 +11,23 @@ const defaults = () => ({
     legalName: "",
     email: "",
     address: "",
-    taxRate: 0.30, // estimated set-aside, not actual tax
+    taxRate: 0.30,
     currency: "USD",
     invoicePrefix: "INV",
     nextInvoiceNumber: 1001,
+    theme: "auto", // auto | dark | light
+    monthlyGoal: 0,
+    annualGoal: 0,
+    mileageRate: 0.67, // IRS standard 2024
+    lockHash: "", // sha-256 of passcode (empty = no lock)
   },
   deals: [],
   bills: [],
   contacts: [],
-  invoices: [], // standalone invoices (not tied to a deal)
+  invoices: [],
+  mileage: [], // { id, date, miles, purpose, fromTo, deductible, notes }
+  activity: [], // { id, ts, type, entity, entityId, label, detail }
+  snapshots: [], // { id, ts, label, payload }
 });
 
 let cache = null;
@@ -39,7 +47,6 @@ function read() {
 
 function migrate(data) {
   if (!data.schema) data.schema = SCHEMA_VERSION;
-  // ensure all keys exist
   const d = defaults();
   return {
     ...d,
@@ -49,6 +56,9 @@ function migrate(data) {
     bills: data.bills || [],
     contacts: data.contacts || [],
     invoices: data.invoices || [],
+    mileage: data.mileage || [],
+    activity: data.activity || [],
+    snapshots: data.snapshots || [],
   };
 }
 
@@ -74,22 +84,45 @@ export function uid() {
 }
 
 // ---- CRUD helpers ----
+function logActivity(type, entity, entityId, label, detail) {
+  const s = getState();
+  s.activity = s.activity || [];
+  s.activity.unshift({ id: uid(), ts: Date.now(), type, entity, entityId, label, detail: detail || "" });
+  // Keep last 500 entries to bound size
+  if (s.activity.length > 500) s.activity.length = 500;
+}
+
 function upsertCollection(name, item) {
   const s = getState();
   const arr = s[name];
   const idx = item.id ? arr.findIndex((x) => x.id === item.id) : -1;
+  let saved;
   if (idx >= 0) {
     arr[idx] = { ...arr[idx], ...item, updatedAt: Date.now() };
+    saved = arr[idx];
+    if (name !== "activity") logActivity("update", name, saved.id, labelFor(name, saved));
   } else {
-    arr.push({ ...item, id: item.id || uid(), createdAt: Date.now(), updatedAt: Date.now() });
+    saved = { ...item, id: item.id || uid(), createdAt: Date.now(), updatedAt: Date.now() };
+    arr.push(saved);
+    if (name !== "activity") logActivity("create", name, saved.id, labelFor(name, saved));
   }
   write();
-  return item.id ? arr[idx >= 0 ? idx : arr.length - 1] : arr[arr.length - 1];
+  return saved;
+}
+
+function labelFor(name, item) {
+  if (name === "deals") return `${item.company || "Deal"}${item.fee ? " · $" + item.fee : ""}`;
+  if (name === "bills") return `${item.vendor || "Bill"}${item.amount ? " · $" + item.amount : ""}`;
+  if (name === "contacts") return item.name || "Contact";
+  if (name === "mileage") return `${item.miles || 0} mi · ${item.purpose || "trip"}`;
+  return name;
 }
 
 function removeFromCollection(name, id) {
   const s = getState();
+  const item = s[name].find((x) => x.id === id);
   s[name] = s[name].filter((x) => x.id !== id);
+  if (item && name !== "activity") logActivity("delete", name, id, labelFor(name, item));
   write();
 }
 
@@ -128,6 +161,43 @@ export const Invoices = {
   get: (id) => getState().invoices.find((i) => i.id === id),
   save: (i) => upsertCollection("invoices", i),
   remove: (id) => removeFromCollection("invoices", id),
+};
+
+export const Mileage = {
+  all: () => getState().mileage,
+  get: (id) => getState().mileage.find((m) => m.id === id),
+  save: (m) => upsertCollection("mileage", m),
+  remove: (id) => removeFromCollection("mileage", id),
+};
+
+export const Activity = {
+  all: () => getState().activity,
+  clear() { const s = getState(); s.activity = []; write(); },
+};
+
+export const Snapshots = {
+  all: () => getState().snapshots,
+  create(label) {
+    const s = getState();
+    const { snapshots, ...rest } = s;
+    const snap = { id: uid(), ts: Date.now(), label: label || new Date().toLocaleString(), payload: JSON.stringify(rest) };
+    s.snapshots = [snap, ...(s.snapshots || [])].slice(0, 20);
+    write();
+    return snap;
+  },
+  restore(id) {
+    const s = getState();
+    const snap = (s.snapshots || []).find((x) => x.id === id);
+    if (!snap) throw new Error("Snapshot not found");
+    const data = JSON.parse(snap.payload);
+    cache = migrate({ ...data, snapshots: s.snapshots });
+    write();
+  },
+  remove(id) {
+    const s = getState();
+    s.snapshots = (s.snapshots || []).filter((x) => x.id !== id);
+    write();
+  },
 };
 
 export const Settings = {

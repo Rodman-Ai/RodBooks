@@ -1,4 +1,4 @@
-import { el, fmtMoney, fmtMoneyShort, monthKey, monthLabel, netFee } from "../utils.js";
+import { el, fmtMoney, fmtMoneyShort, monthKey, monthLabel, netFee, serviceMeta } from "../utils.js";
 import { Deals, Bills, Settings, subscribe } from "../store.js";
 
 export default function reports() {
@@ -43,6 +43,11 @@ export default function reports() {
     const expMonth = Object.fromEntries(months.map((m) => [m, 0]));
     yDeals.forEach((d) => { const k = monthKey(d.paidDate || d.serviceDate || d.invoiceDate); if (k in incMonth) incMonth[k] += netFee(d); });
     yBills.forEach((b) => { const k = monthKey(b.date); if (k in expMonth) expMonth[k] += (+b.amount || 0); });
+
+    // Quarterly cash collected & estimated tax
+    const qData = quarterlyBreakdown(deals.filter((d) => d.paid && (d.paidDate || "").startsWith(year)), settings.taxRate || 0.3);
+    // Margin by service
+    const svcMargin = serviceMargin(yDeals, yBills);
 
     node.innerHTML = "";
     node.append(
@@ -120,6 +125,50 @@ export default function reports() {
         el("h3", {}, `Monthly net · ${year}`),
         el("div", { class: "chart-wrap" }, el("canvas", { id: "monthly-chart" })),
       ),
+
+      el("div", { class: "card" },
+        el("h3", {}, `Quarterly estimated tax · ${year}`),
+        el("div", { class: "small muted", style: { marginBottom: 8 } }, `Reserve rate ${Math.round((settings.taxRate || 0.3) * 100)}% of cash collected. US estimated-tax due dates shown for reference.`),
+        el("table", { class: "data" },
+          el("thead", {}, el("tr", {},
+            el("th", {}, "Quarter"),
+            el("th", {}, "Period"),
+            el("th", {}, "Due"),
+            el("th", { class: "num" }, "Cash collected"),
+            el("th", { class: "num" }, "Reserve"),
+          )),
+          el("tbody", {}, ...qData.map((q) => el("tr", {},
+            el("td", { style: { fontWeight: 600 } }, q.label),
+            el("td", { class: "small muted" }, q.period),
+            el("td", { class: "small muted" }, q.due),
+            el("td", { class: "num" }, fmtMoney(q.collected)),
+            el("td", { class: "num" }, fmtMoney(q.reserve)),
+          ))),
+        ),
+      ),
+
+      el("div", { class: "card" },
+        el("h3", {}, "Margin by service type"),
+        el("div", { class: "small muted", style: { marginBottom: 8 } }, "Allocates expenses pro-rata by income share. Use as a rough guide."),
+        el("table", { class: "data" },
+          el("thead", {}, el("tr", {},
+            el("th", {}, "Service"),
+            el("th", { class: "num" }, "Deals"),
+            el("th", { class: "num" }, "Net income"),
+            el("th", { class: "num" }, "Allocated cost"),
+            el("th", { class: "num" }, "Profit"),
+            el("th", { class: "num" }, "Margin"),
+          )),
+          el("tbody", {}, ...svcMargin.map((r) => el("tr", {},
+            el("td", {}, r.label),
+            el("td", { class: "num" }, r.count),
+            el("td", { class: "num" }, fmtMoney(r.income)),
+            el("td", { class: "num muted" }, fmtMoney(r.cost)),
+            el("td", { class: "num" }, fmtMoney(r.profit)),
+            el("td", { class: "num" }, `${r.margin.toFixed(0)}%`),
+          ))),
+        ),
+      ),
     );
 
     requestAnimationFrame(() => {
@@ -158,6 +207,46 @@ function kpi(label, value, dir, sub) {
     el("div", { class: "kpi-value" }, value),
     sub && el("div", { class: "kpi-sub" }, sub),
   );
+}
+
+function quarterlyBreakdown(paidDeals, rate) {
+  const Q = [
+    { label: "Q1", months: [0, 1, 2], period: "Jan–Mar", due: "Apr 15" },
+    { label: "Q2", months: [3, 4], period: "Apr–May", due: "Jun 15" },
+    { label: "Q3", months: [5, 6, 7], period: "Jun–Aug", due: "Sep 15" },
+    { label: "Q4", months: [8, 9, 10, 11], period: "Sep–Dec", due: "Jan 15" },
+  ];
+  return Q.map((q) => {
+    const collected = paidDeals.filter((d) => {
+      const m = +(d.paidDate || "").slice(5, 7) - 1;
+      return q.months.includes(m);
+    }).reduce((s, d) => s + (+d.paidAmount || 0), 0);
+    return { ...q, collected, reserve: collected * rate };
+  });
+}
+
+function serviceMargin(deals, bills) {
+  const groups = {};
+  deals.forEach((d) => {
+    const k = d.svc || "—";
+    if (!groups[k]) groups[k] = { svc: k, count: 0, income: 0 };
+    groups[k].count += 1;
+    groups[k].income += netFee(d);
+  });
+  const totalIncome = Object.values(groups).reduce((s, g) => s + g.income, 0);
+  const totalCost = bills.reduce((s, b) => s + (+b.amount || 0), 0);
+  return Object.values(groups).map((g) => {
+    const cost = totalIncome ? totalCost * (g.income / totalIncome) : 0;
+    const profit = g.income - cost;
+    return {
+      label: serviceMeta(g.svc).label,
+      count: g.count,
+      income: g.income,
+      cost,
+      profit,
+      margin: g.income ? (profit / g.income) * 100 : 0,
+    };
+  }).sort((a, b) => b.income - a.income);
 }
 
 function row2(k, v, bold, big) {

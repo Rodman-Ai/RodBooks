@@ -1,6 +1,8 @@
-import { el, todayISO } from "../utils.js";
-import { Settings, exportJSON, importJSON, resetAll, loadSampleData, downloadFile, subscribe, Deals, Bills, Contacts } from "../store.js";
-import { confirmDialog, toast } from "../ui.js";
+import { el, todayISO, csvFromString } from "../utils.js";
+import { Settings, exportJSON, importJSON, resetAll, loadSampleData, downloadFile, subscribe, Deals, Bills, Contacts, Snapshots } from "../store.js";
+import { confirmDialog, toast, openModal } from "../ui.js";
+import { setTheme } from "../theme.js";
+import { setPasscode, isLockEnabled, lock as lockNow } from "../lock.js";
 
 export default function settings() {
   const node = el("div", {});
@@ -18,6 +20,9 @@ export default function settings() {
     const currency = sel(s.currency, ["USD", "EUR", "GBP", "CAD", "AUD", "JPY", "INR"].map((c) => ({ value: c, label: c })));
     const invPrefix = inp(s.invoicePrefix, "INV");
     const invNext = inp(s.nextInvoiceNumber, "1001", "number");
+    const monthlyGoal = inp(s.monthlyGoal || "", "5000", "number");
+    const annualGoal = inp(s.annualGoal || "", "120000", "number");
+    const mileageRate = inp(s.mileageRate ?? 0.67, "0.67", "number");
 
     const save = () => {
       Settings.update({
@@ -29,6 +34,9 @@ export default function settings() {
         currency: currency.value,
         invoicePrefix: invPrefix.value,
         nextInvoiceNumber: +invNext.value || 1001,
+        monthlyGoal: +monthlyGoal.value || 0,
+        annualGoal: +annualGoal.value || 0,
+        mileageRate: +mileageRate.value || 0.67,
       });
       toast("Settings saved");
     };
@@ -95,6 +103,55 @@ export default function settings() {
           field("Next invoice #", invNext),
         ),
       ),
+
+      el("div", { class: "card" },
+        el("h3", {}, "Goals"),
+        el("div", { class: "form-grid" },
+          field("Monthly revenue goal ($)", monthlyGoal),
+          field("Annual revenue goal ($)", annualGoal),
+        ),
+      ),
+
+      el("div", { class: "card" },
+        el("h3", {}, "Mileage"),
+        el("div", { class: "form-grid" },
+          field("Deduction rate ($/mile)", mileageRate),
+        ),
+      ),
+
+      el("div", { class: "card" },
+        el("h3", {}, "Appearance"),
+        el("div", { class: "row" },
+          themeBtn("auto", "System", s.theme === "auto"),
+          themeBtn("dark", "Dark", s.theme === "dark"),
+          themeBtn("light", "Light", s.theme === "light"),
+        ),
+      ),
+
+      el("div", { class: "card" },
+        el("h3", {}, "Privacy lock"),
+        el("div", { class: "small muted", style: { marginBottom: 8 } },
+          "Set a passcode to gate the app on shared devices. This is a UI lock — data is still stored unencrypted in your browser."),
+        el("div", { class: "row" },
+          isLockEnabled()
+            ? el("button", { class: "btn", onclick: async () => { await setPasscode(""); toast("Lock removed"); } }, "Remove passcode")
+            : el("button", { class: "btn primary", onclick: () => openSetPasscode() }, "Set passcode"),
+          isLockEnabled() && el("button", { class: "btn", onclick: () => lockNow() }, "Lock now"),
+        ),
+      ),
+
+      el("div", { class: "card" },
+        el("h3", {}, "Snapshots"),
+        el("div", { class: "small muted", style: { marginBottom: 8 } }, "Save a restore point before risky changes. Up to 20 retained."),
+        el("div", { class: "row" },
+          el("button", { class: "btn primary", onclick: async () => {
+            const label = prompt("Label this snapshot", new Date().toLocaleString());
+            if (label !== null) { Snapshots.create(label); toast("Snapshot saved"); }
+          } }, "Save snapshot"),
+        ),
+        renderSnapshotList(),
+      ),
+
       el("div", { class: "row", style: { justifyContent: "flex-end" } }, el("button", { class: "btn primary", onclick: save }, "Save settings")),
 
       el("div", { class: "card" },
@@ -104,6 +161,7 @@ export default function settings() {
         el("div", { class: "row", style: { flexWrap: "wrap", gap: "8px" } },
           el("button", { class: "btn", onclick: onExport }, "Export JSON"),
           el("button", { class: "btn", onclick: onImport }, "Import JSON"),
+          el("button", { class: "btn", onclick: openCsvImport }, "Import CSV…"),
           el("button", { class: "btn", onclick: onSample }, "Load sample data"),
           el("button", { class: "btn danger", onclick: onReset }, "Reset all"),
         ),
@@ -120,6 +178,146 @@ export default function settings() {
   const unsub = subscribe(render);
   render();
   return { node, unmount: unsub };
+}
+
+function themeBtn(value, label, active) {
+  return el("button", { class: `chip ${active ? "active" : ""}`, onclick: () => { setTheme(value); toast(`Theme: ${label.toLowerCase()}`); } }, label);
+}
+
+function renderSnapshotList() {
+  const list = Snapshots.all();
+  if (!list.length) return el("div", { class: "small muted", style: { marginTop: 8 } }, "No snapshots yet.");
+  return el("div", { class: "list", style: { marginTop: 12 } },
+    ...list.map((s) => el("div", { class: "list-row" },
+      el("div", { style: { flex: 1 } },
+        el("div", {}, s.label),
+        el("div", { class: "small muted" }, new Date(s.ts).toLocaleString()),
+      ),
+      el("button", { class: "btn sm", onclick: async () => {
+        const ok = await confirmDialog({ title: "Restore this snapshot?", body: "Current data will be replaced (your snapshot list is preserved).", danger: true, confirmLabel: "Restore" });
+        if (ok) { Snapshots.restore(s.id); toast("Restored"); }
+      } }, "Restore"),
+      el("button", { class: "btn sm danger", onclick: async () => {
+        const ok = await confirmDialog({ title: "Delete snapshot?", body: s.label, danger: true, confirmLabel: "Delete" });
+        if (ok) { Snapshots.remove(s.id); toast("Deleted"); }
+      } }, "Delete"),
+    )),
+  );
+}
+
+function openSetPasscode() {
+  const pin1 = el("input", { class: "input", type: "password", inputmode: "numeric", placeholder: "4-8 digits", autocomplete: "new-password" });
+  const pin2 = el("input", { class: "input", type: "password", inputmode: "numeric", placeholder: "Confirm", autocomplete: "new-password" });
+  const body = el("div", { class: "stack" },
+    el("div", { class: "small muted" }, "Choose a numeric passcode. You'll be prompted on next launch."),
+    el("div", { class: "field" }, el("label", {}, "Passcode"), pin1),
+    el("div", { class: "field" }, el("label", {}, "Confirm"), pin2),
+  );
+  let m;
+  const submit = async () => {
+    if (!pin1.value || pin1.value.length < 4) { toast("At least 4 characters", "warn"); return; }
+    if (pin1.value !== pin2.value) { toast("Doesn't match", "warn"); return; }
+    await setPasscode(pin1.value);
+    toast("Passcode set");
+    m.close();
+  };
+  pin2.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+  const footer = el("div", { class: "row" },
+    el("div", { class: "spacer" }),
+    el("button", { class: "btn", onclick: () => m.close() }, "Cancel"),
+    el("button", { class: "btn primary", onclick: submit }, "Set passcode"),
+  );
+  m = openModal({ title: "Set passcode", body, footer });
+  setTimeout(() => pin1.focus(), 30);
+}
+
+function openCsvImport() {
+  const file = el("input", { type: "file", accept: ".csv,text/csv" });
+  file.addEventListener("change", () => {
+    const f = file.files?.[0]; if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => csvImportWizard(String(reader.result || ""));
+    reader.readAsText(f);
+  });
+  file.click();
+}
+
+function csvImportWizard(text) {
+  const rows = csvFromString(text);
+  if (!rows.length) { toast("Empty CSV", "warn"); return; }
+  const headers = rows[0];
+  const data = rows.slice(1).filter((r) => r.length === headers.length);
+
+  const targetSel = sel("deals", [
+    { value: "deals", label: "Brand Deals" },
+    { value: "bills", label: "Bills / Expenses" },
+    { value: "contacts", label: "Contacts" },
+  ]);
+
+  const fieldDefs = {
+    deals: ["company", "svc", "fee", "partnerFeePct", "paidAmount", "paid", "paidDate", "payMethod", "serviceDate", "postDate", "draftDue", "invoiceNumber", "invoiceDate", "invoiceUrl", "invoiceTo", "contractUrl", "briefUrl", "draftUrl", "notes"],
+    bills: ["vendor", "category", "amount", "date", "paid", "paidDate", "payMethod", "recurring", "receiptUrl", "notes"],
+    contacts: ["name", "company", "type", "email", "phone", "notes"],
+  };
+
+  const mappingsContainer = el("div", { class: "form-grid" });
+  const renderMappings = () => {
+    mappingsContainer.innerHTML = "";
+    const fields = fieldDefs[targetSel.value];
+    fields.forEach((f) => {
+      const guess = headers.find((h) => h.toLowerCase().replace(/[^a-z]/g, "") === f.toLowerCase());
+      const dropdown = el("select", { class: "select" });
+      dropdown.dataset.field = f;
+      dropdown.append(el("option", { value: "" }, "— ignore —"));
+      headers.forEach((h, i) => {
+        const o = el("option", { value: String(i) }, h);
+        if (h === guess) o.selected = true;
+        dropdown.append(o);
+      });
+      mappingsContainer.append(el("div", { class: "field" }, el("label", {}, f), dropdown));
+    });
+  };
+  targetSel.addEventListener("change", renderMappings);
+  renderMappings();
+
+  const body = el("div", { class: "stack" },
+    el("div", { class: "small muted" }, `${data.length} rows detected. Map columns:`),
+    el("div", { class: "field" }, el("label", {}, "Import as"), targetSel),
+    mappingsContainer,
+  );
+  let m;
+  const doImport = async () => {
+    const target = targetSel.value;
+    const fields = fieldDefs[target];
+    const map = {};
+    mappingsContainer.querySelectorAll("select").forEach((sel) => {
+      if (sel.value !== "") map[sel.dataset.field] = +sel.value;
+    });
+    let added = 0;
+    for (const row of data) {
+      const item = {};
+      for (const [f, idx] of Object.entries(map)) {
+        let v = row[idx];
+        if (v == null) continue;
+        if (["fee", "amount", "paidAmount", "partnerFeePct"].includes(f)) v = parseFloat(v) || 0;
+        if (f === "paid") v = /^(yes|y|true|1|paid)$/i.test(String(v).trim());
+        item[f] = v;
+      }
+      if (Object.keys(item).length === 0) continue;
+      if (target === "deals") Deals.save(item);
+      else if (target === "bills") Bills.save(item);
+      else if (target === "contacts") Contacts.save(item);
+      added++;
+    }
+    toast(`Imported ${added} row${added === 1 ? "" : "s"}`);
+    m.close();
+  };
+  const footer = el("div", { class: "row" },
+    el("div", { class: "spacer" }),
+    el("button", { class: "btn", onclick: () => m.close() }, "Cancel"),
+    el("button", { class: "btn primary", onclick: doImport }, "Import"),
+  );
+  m = openModal({ title: `CSV import · ${data.length} rows`, body, footer, wide: true });
 }
 
 function inp(value, placeholder, type = "text") {
