@@ -119,6 +119,7 @@ export default function taxView() {
             return s;
           })(),
           el("button", { class: "btn", onclick: () => exportAuditPack(year) }, "Export audit pack"),
+          el("button", { class: "btn", onclick: () => downloadYearEndPdf(year) }, "Year-end tax PDF"),
           el("button", { class: "btn primary", onclick: () => openTaxPaymentForm({ year: +year }) }, "+ Log estimated payment"),
         ),
       ),
@@ -622,6 +623,92 @@ function generate1099Pdfs(owedForms, year) {
     jsPDF: { unit: "mm", format: "letter", orientation: "portrait" },
   }).from(wrapper).save();
   toast(`Generating ${owedForms.length} 1099 summar${owedForms.length === 1 ? "y" : "ies"}…`);
+}
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Year-end tax PDF (#39). Single printable doc with P&L, Schedule C totals,
+// SE-tax breakdown, mileage, depreciation, sales tax, 1099 summary.
+function downloadYearEndPdf(yyyy) {
+  if (!window.html2pdf) { toast("PDF library not loaded yet", "warn"); return; }
+  const settings = Settings.get();
+  const allDeals = Deals.all();
+  const allBills = Bills.all();
+  const yDeals = allDeals.filter((d) => d.paid && (d.paidDate || "").startsWith(yyyy));
+  const yBills = allBills.filter((b) => (b.date || "").startsWith(yyyy));
+  const grossIncome = yDeals.reduce((s, d) => s + (+d.paidAmount || netFee(d)), 0);
+  const totalBills = yBills.reduce((s, b) => s + (+b.amount || 0), 0);
+  // Box totals
+  const boxes = {};
+  yBills.forEach((b) => {
+    const meta = SCHED_C[b.category] || SCHED_C.Other;
+    const amt = b.category === "Meals" ? (+b.amount || 0) * 0.5 : (+b.amount || 0);
+    boxes[meta.label] = (boxes[meta.label] || 0) + amt;
+  });
+  const totalDed = Object.values(boxes).reduce((a, b) => a + b, 0);
+  const netSE = Math.max(0, grossIncome - totalDed);
+  const seBase = netSE * 0.9235;
+  const seTax = Math.min(seBase, 168600) * 0.124 + seBase * 0.029 + Math.max(0, seBase - 200000) * 0.009;
+  const totalEst = seTax + Math.max(0, netSE - seTax / 2) * (settings.taxRate || 0.3) + netSE * (settings.stateRate || 0.05);
+  const mileage = (window.localStorage.getItem("rodbooks:v1") ? null : null); // not used
+  const html = `
+    <div style="background:#fff;color:#111;padding:36px;font-family:-apple-system,sans-serif;line-height:1.5">
+      <div style="display:flex;justify-content:space-between;border-bottom:3px solid #111;padding-bottom:14px;margin-bottom:18px">
+        <div>
+          <div style="font-size:22px;font-weight:800">${escapeHtml(settings.businessName || "Creator business")}</div>
+          <div style="color:#666;font-size:12px">${escapeHtml(settings.email || "")}</div>
+          <div style="color:#666;font-size:12px;white-space:pre-wrap">${escapeHtml(settings.address || "")}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:22px;font-weight:800;color:#22c55e">YEAR-END TAX SUMMARY</div>
+          <div style="color:#666;font-size:13px">Tax year ${yyyy}</div>
+          ${settings.invoiceTemplate?.taxId ? `<div style="font-size:11px;color:#666">${escapeHtml(settings.invoiceTemplate.taxId)}</div>` : ""}
+        </div>
+      </div>
+
+      <h2 style="font-size:14px;text-transform:uppercase;color:#666;margin:0 0 6px;border-bottom:1px solid #ddd;padding-bottom:4px">Income</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <tr><td>Gross income (cash)</td><td style="text-align:right">${fmtMoney(grossIncome)}</td></tr>
+        <tr><td>Total expenses</td><td style="text-align:right">${fmtMoney(totalBills)}</td></tr>
+        <tr style="border-top:2px solid #111"><td style="font-weight:700">Net SE income</td><td style="text-align:right;font-weight:700">${fmtMoney(netSE)}</td></tr>
+      </table>
+
+      <h2 style="font-size:14px;text-transform:uppercase;color:#666;margin:18px 0 6px;border-bottom:1px solid #ddd;padding-bottom:4px">Schedule C — box totals</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        ${Object.entries(boxes).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td style="text-align:right">${fmtMoney(v)}</td></tr>`).join("")}
+        <tr style="border-top:2px solid #111"><td style="font-weight:700">Total deductions</td><td style="text-align:right;font-weight:700">${fmtMoney(totalDed)}</td></tr>
+      </table>
+
+      <h2 style="font-size:14px;text-transform:uppercase;color:#666;margin:18px 0 6px;border-bottom:1px solid #ddd;padding-bottom:4px">Self-employment tax</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <tr><td>SE base (Net × 92.35%)</td><td style="text-align:right">${fmtMoney(seBase)}</td></tr>
+        <tr><td>SE tax</td><td style="text-align:right">${fmtMoney(seTax)}</td></tr>
+        <tr style="border-top:2px solid #111"><td style="font-weight:700">Total estimated federal + state</td><td style="text-align:right;font-weight:700">${fmtMoney(totalEst)}</td></tr>
+      </table>
+
+      <h2 style="font-size:14px;text-transform:uppercase;color:#666;margin:18px 0 6px;border-bottom:1px solid #ddd;padding-bottom:4px">Top brands (paid)</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        ${(function () {
+          const m = {};
+          yDeals.forEach((d) => { m[d.company] = (m[d.company] || 0) + (+d.paidAmount || netFee(d)); });
+          return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td style="text-align:right">${fmtMoney(v)}</td></tr>`).join("");
+        })()}
+      </table>
+
+      <div style="margin-top:32px;color:#999;font-size:11px;text-align:center">Generated by RodBooks · ${new Date().toLocaleString()}</div>
+    </div>
+  `;
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = html;
+  window.html2pdf().set({
+    margin: 8,
+    filename: `rodbooks-yearend-${yyyy}.pdf`,
+    html2canvas: { scale: 2, backgroundColor: "#ffffff" },
+    jsPDF: { unit: "mm", format: "letter", orientation: "portrait" },
+  }).from(wrapper).save();
+  toast(`Year-end ${yyyy} PDF exported`);
 }
 
 // Audit pack export (#40): bundle CSVs of deals/bills/mileage/payments + a summary as JSON download.
