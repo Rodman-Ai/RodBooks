@@ -222,6 +222,70 @@ export function brandWarmth(deals) {
   return Math.round((recencyScore * 0.5 + freqScore * 0.3 + paidScore * 0.2) * 100);
 }
 
+// Add N days to an ISO date string and return ISO yyyy-mm-dd.
+export function addDays(iso, n) {
+  if (!iso) return "";
+  const d = parseDate(iso);
+  if (!d) return "";
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// Compute due date from invoiceDate + terms (net days). Returns "" if either missing.
+export function dueDate(d) {
+  if (!d.invoiceDate) return "";
+  const terms = Number(d.terms || 0);
+  return terms ? addDays(d.invoiceDate, terms) : d.invoiceDate;
+}
+
+// Days past due (positive = overdue, negative = upcoming, 0 = today, null = not invoiceable).
+export function daysPastDue(d) {
+  const due = dueDate(d);
+  if (!due || d.paid) return null;
+  const ms = Date.now() - parseDate(due).getTime();
+  return Math.round(ms / 86400000);
+}
+
+// Late fee accrued (compounds monthly if rate > 0).
+export function lateFee(d, ratePctPerMonth = 0) {
+  const dpd = daysPastDue(d);
+  if (!dpd || dpd <= 0 || !ratePctPerMonth) return 0;
+  const monthsLate = dpd / 30;
+  const principal = netFee(d);
+  // Simple monthly compounding
+  return principal * (Math.pow(1 + ratePctPerMonth / 100, monthsLate) - 1);
+}
+
+// Bucket an outstanding deal into 0-30 / 31-60 / 61-90 / 90+ days past due.
+export function agingBucket(d) {
+  const dpd = daysPastDue(d);
+  if (dpd == null) return null;
+  if (dpd <= 0) return "current";
+  if (dpd <= 30) return "0-30";
+  if (dpd <= 60) return "31-60";
+  if (dpd <= 90) return "61-90";
+  return "90+";
+}
+
+// Days Sales Outstanding for paid deals only:
+//   sum(days from invoiceDate→paidDate) / count
+export function dsoOf(deals) {
+  const list = deals.filter((d) => d.paid && d.invoiceDate && d.paidDate);
+  if (!list.length) return 0;
+  const total = list.reduce((s, d) => {
+    const a = parseDate(d.invoiceDate); const b = parseDate(d.paidDate);
+    return s + Math.max(0, (b - a) / 86400000);
+  }, 0);
+  return Math.round(total / list.length);
+}
+
+// Quarter index 0..3 from a Date.
+export function quarterOf(date) {
+  const d = typeof date === "string" ? parseDate(date) : date;
+  if (!d || isNaN(d)) return null;
+  return Math.floor(d.getMonth() / 3);
+}
+
 export function initials(name) {
   if (!name) return "?";
   const parts = String(name).trim().split(/\s+/).slice(0, 2);

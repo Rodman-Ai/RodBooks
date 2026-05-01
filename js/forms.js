@@ -1,7 +1,7 @@
 // Reusable form builders for the main entities.
 
 import { el } from "./utils.js";
-import { Contacts, Deals, Bills, Settings } from "./store.js";
+import { Contacts, Deals, Bills, Settings, VendorRules } from "./store.js";
 import { SERVICE_OPTIONS, todayISO, netFee, fmtMoney } from "./utils.js";
 import { openModal, toast } from "./ui.js";
 import { parseDealText } from "./nl.js";
@@ -34,16 +34,20 @@ function contactSelect(value, name = "contactId") {
 
 export function openDealForm(deal) {
   const isNew = !deal?.id;
+  const settings = Settings.get();
   const d = deal || {
     company: "", contactId: "", svc: "p", fee: 0, partnerFeePct: 0, paidAmount: 0,
     paid: false, paidDate: "", payMethod: "", serviceDate: todayISO(), postDate: "", draftDue: "",
     contractUrl: "", briefUrl: "", draftUrl: "", portalUrl: "", notesUrl: "",
     invoiceNumber: "", invoiceDate: "", invoiceUrl: "", invoiceTo: "",
     transactionId: "", year: new Date().getFullYear(), notes: "",
+    deliverables: [], partials: [], terms: settings.defaultTerms || 0,
+    creditNoteOf: "", quotedFee: 0,
   };
 
   const company = input(d.company, "text", { placeholder: "e.g. Descript", required: true });
   const contact = contactSelect(d.contactId);
+  // Auto-fill from brand defaults when picking a contact (#5).
   contact.addEventListener("change", () => {
     if (contact.value === "__new") {
       const name = prompt("New contact name");
@@ -56,7 +60,14 @@ export function openDealForm(deal) {
       }
     } else {
       const c = Contacts.get(contact.value);
-      if (c && !company.value) company.value = c.name;
+      if (c) {
+        if (!company.value) company.value = c.name;
+        // Auto-fill defaults if deal is empty
+        if (isNew && c.defaultRates) {
+          const rate = c.defaultRates[svc.value];
+          if (rate && !fee.value) { fee.value = rate; recalcNet(); }
+        }
+      }
     }
   });
 
@@ -81,6 +92,82 @@ export function openDealForm(deal) {
   const notesUrl = input(d.notesUrl, "url", { placeholder: "https://" });
   const transactionId = input(d.transactionId, "text", { placeholder: "Bank/Stripe ref" });
   const notes = el("textarea", { class: "textarea", placeholder: "Notes" }, d.notes || "");
+  const terms = selectEl(d.terms ?? "", [
+    { value: "", label: "Due on receipt" },
+    { value: "15", label: "Net 15" },
+    { value: "30", label: "Net 30" },
+    { value: "45", label: "Net 45" },
+    { value: "60", label: "Net 60" },
+    { value: "90", label: "Net 90" },
+  ]);
+  const quotedFee = input(d.quotedFee || "", "number", { step: "0.01", min: "0", placeholder: "What you originally quoted" });
+  const creditOptions = [{ value: "", label: "— None (regular deal) —" }].concat(
+    Deals.all().filter((x) => x.id !== d.id && x.invoiceNumber).map((x) => ({ value: x.id, label: `${x.company} · ${x.invoiceNumber}` })),
+  );
+  const creditNoteOf = selectEl(d.creditNoteOf || "", creditOptions);
+
+  // Deliverables checklist (#4)
+  let deliverables = (d.deliverables || []).slice();
+  const dlvList = el("div", { class: "deliverables" });
+  const renderDeliverables = () => {
+    dlvList.innerHTML = "";
+    deliverables.forEach((dl, i) => {
+      const checkbox = input(null, "checkbox", { checked: !!dl.done });
+      checkbox.addEventListener("change", () => { deliverables[i].done = checkbox.checked; });
+      const label = input(dl.label || "", "text", { placeholder: "Deliverable" });
+      label.addEventListener("input", () => { deliverables[i].label = label.value; });
+      const due = input(dl.due || "", "date");
+      due.addEventListener("input", () => { deliverables[i].due = due.value; });
+      const remove = el("button", { class: "btn sm danger", type: "button", onclick: () => { deliverables.splice(i, 1); renderDeliverables(); } }, "×");
+      dlvList.append(el("div", { class: "deliverable-row" }, checkbox, label, due, remove));
+    });
+    const presets = ["Script", "B-roll", "Thumbnail", "Draft", "Post", "Repost"];
+    const addRow = el("div", { class: "row", style: { marginTop: "6px", flexWrap: "wrap", gap: "4px" } },
+      el("button", { class: "btn sm", type: "button", onclick: () => { deliverables.push({ label: "", done: false, due: "" }); renderDeliverables(); } }, "+ Add"),
+      ...presets.map((p) => el("button", { class: "btn sm ghost", type: "button", onclick: () => {
+        if (!deliverables.some((x) => (x.label || "").toLowerCase() === p.toLowerCase())) {
+          deliverables.push({ label: p, done: false, due: "" });
+          renderDeliverables();
+        }
+      } }, "+ " + p)),
+    );
+    dlvList.append(addRow);
+  };
+  renderDeliverables();
+
+  // Partial payments ledger (#44)
+  let partials = (d.partials || []).slice();
+  const partialsBox = el("div", { class: "partials" });
+  const renderPartials = () => {
+    partialsBox.innerHTML = "";
+    partials.forEach((p, i) => {
+      const date = input(p.date || todayISO(), "date");
+      date.addEventListener("input", () => { partials[i].date = date.value; });
+      const amount = input(p.amount || 0, "number", { step: "0.01", min: "0" });
+      amount.addEventListener("input", () => { partials[i].amount = +amount.value || 0; recalcPaidFromPartials(); });
+      const note = input(p.note || "", "text", { placeholder: "Memo" });
+      note.addEventListener("input", () => { partials[i].note = note.value; });
+      const remove = el("button", { class: "btn sm danger", type: "button", onclick: () => { partials.splice(i, 1); renderPartials(); recalcPaidFromPartials(); } }, "×");
+      partialsBox.append(el("div", { class: "partial-row" }, date, amount, note, remove));
+    });
+    const total = partials.reduce((s, p) => s + (+p.amount || 0), 0);
+    partialsBox.append(el("div", { class: "row spread", style: { marginTop: "6px" } },
+      el("button", { class: "btn sm", type: "button", onclick: () => { partials.push({ date: todayISO(), amount: 0, note: "" }); renderPartials(); } }, "+ Record payment"),
+      el("div", { class: "small muted" }, `${partials.length} payment${partials.length === 1 ? "" : "s"} · ${fmtMoney(total)}`),
+    ));
+  };
+  function recalcPaidFromPartials() {
+    if (!partials.length) return;
+    const total = partials.reduce((s, p) => s + (+p.amount || 0), 0);
+    paidAmount.value = total.toFixed(2);
+    if (total >= netFee({ fee: +fee.value || 0, partnerFeePct: +partnerFee.value || 0, paidAmount: 0 }) - 0.01) {
+      paid.checked = true;
+      const last = partials.slice().sort((a, b) => (a.date || "").localeCompare(b.date || "")).pop();
+      if (last?.date && !paidDate.value) paidDate.value = last.date;
+    }
+    recalcNet();
+  }
+  renderPartials();
 
   const netHint = el("div", { class: "small muted" }, "");
   const recalcNet = () => {
@@ -95,6 +182,7 @@ export function openDealForm(deal) {
     field("Contact", contact),
     field("Service type", svc),
     field("Fee ($)", fee),
+    field("Quoted fee ($)", quotedFee),
     field("Partner fee %", partnerFee),
     field("Paid amount (actual)", paidAmount),
     el("div", { class: "field full small muted" }, netHint),
@@ -106,8 +194,12 @@ export function openDealForm(deal) {
     el("div", { class: "field" }, el("label", {}, "Paid?"), el("div", {}, paid)),
     field("Invoice #", invNumber),
     field("Invoice date", invDate),
+    field("Payment terms", terms),
+    field("Credit-note for", creditNoteOf),
     field("Invoice URL", invUrl, { full: true }),
     field("Invoice to (billing)", invoiceTo, { full: true }),
+    el("div", { class: "field full" }, el("label", {}, "Deliverables"), dlvList),
+    el("div", { class: "field full" }, el("label", {}, "Payment ledger"), partialsBox),
     field("Contract URL", contractUrl),
     field("Brief URL", briefUrl),
     field("Draft URL", draftUrl),
@@ -136,6 +228,7 @@ export function openDealForm(deal) {
       company: company.value.trim(),
       svc: svc.value,
       fee: +fee.value || 0,
+      quotedFee: +quotedFee.value || 0,
       partnerFeePct: +partnerFee.value || 0,
       paidAmount: +paidAmount.value || 0,
       paid: paid.checked,
@@ -155,6 +248,10 @@ export function openDealForm(deal) {
       invoiceTo: invoiceTo.value,
       transactionId: transactionId.value,
       notes: notes.value,
+      terms: terms.value ? +terms.value : 0,
+      creditNoteOf: creditNoteOf.value || "",
+      deliverables: deliverables.filter((x) => x.label?.trim()),
+      partials: partials.filter((p) => p.amount > 0 || p.date),
       year: serviceDate.value ? +serviceDate.value.slice(0, 4) : (d.year || new Date().getFullYear()),
     });
     toast(isNew ? "Deal created" : "Deal updated", "info");
@@ -183,6 +280,12 @@ export function openBillForm(bill) {
   const category = selectEl(b.category, [
     "Software", "Equipment", "Office", "Travel", "Meals", "Marketing", "Contractors", "Education", "Subscriptions", "Phone & Internet", "Home Office", "Other",
   ].map((v) => ({ value: v, label: v })));
+  // Vendor → category memory (#81): suggest category from learned rules.
+  vendor.addEventListener("input", () => {
+    if (!isNew) return;
+    const suggested = VendorRules.categoryFor(vendor.value);
+    if (suggested) category.value = suggested;
+  });
   const amount = input(b.amount, "number", { step: "0.01", min: "0", required: true });
   const date = input(b.date, "date");
   const paid = input(null, "checkbox", { checked: b.paid });
@@ -226,6 +329,8 @@ export function openBillForm(bill) {
       receiptUrl: receipt.value,
       notes: notes.value,
     });
+    // Learn this vendor → category mapping (#81)
+    VendorRules.learn(vendor.value.trim(), category.value);
     toast(isNew ? "Bill added" : "Bill updated");
     modal.close();
   };
@@ -240,7 +345,7 @@ export function openBillForm(bill) {
 
 export function openContactForm(contact) {
   const isNew = !contact?.id;
-  const c = contact || { name: "", company: "", type: "brand", email: "", phone: "", notes: "" };
+  const c = contact || { name: "", company: "", type: "brand", email: "", phone: "", notes: "", tags: [], wikiMd: "", defaultRates: {}, audience: [], testimonials: [] };
   const name = input(c.name, "text", { required: true });
   const company = input(c.company, "text");
   const type = selectEl(c.type, [
@@ -253,6 +358,55 @@ export function openContactForm(contact) {
   const email = input(c.email, "email");
   const phone = input(c.phone, "tel");
   const notes = el("textarea", { class: "textarea" }, c.notes || "");
+  const tags = input((c.tags || []).join(", "), "text", { placeholder: "tier1, rush, pays-late, great-team" });
+  const wikiMd = el("textarea", { class: "textarea", style: { minHeight: "120px" }, placeholder: "Brand notes (markdown OK)" }, c.wikiMd || "");
+
+  // Default rates per service type (#5)
+  const dr = c.defaultRates || {};
+  const rateInputs = {};
+  const rateGrid = el("div", { class: "form-grid" });
+  ["v", "p", "qrt", "rt", "incentive"].forEach((k) => {
+    const inp = input(dr[k] || "", "number", { step: "0.01", min: "0", placeholder: "0" });
+    rateInputs[k] = inp;
+    const lbl = ({ v: "Video", p: "Post", qrt: "Quote/RT", rt: "Repost", incentive: "Incentive" })[k];
+    rateGrid.append(field(lbl, inp));
+  });
+
+  // Audience snapshot tracker (#93)
+  let audience = (c.audience || []).slice();
+  const audienceBox = el("div", { class: "audience" });
+  const renderAudience = () => {
+    audienceBox.innerHTML = "";
+    audience.forEach((a, i) => {
+      const date = input(a.date || todayISO(), "date");
+      date.addEventListener("input", () => { audience[i].date = date.value; });
+      const platform = selectEl(a.platform || "yt", ["yt", "ig", "tt", "x", "ln", "fb", "yt-shorts", "yt-subs"].map((v) => ({ value: v, label: v.toUpperCase() })));
+      platform.addEventListener("change", () => { audience[i].platform = platform.value; });
+      const count = input(a.count || 0, "number", { step: "1", min: "0", placeholder: "Followers" });
+      count.addEventListener("input", () => { audience[i].count = +count.value || 0; });
+      const remove = el("button", { class: "btn sm danger", type: "button", onclick: () => { audience.splice(i, 1); renderAudience(); } }, "×");
+      audienceBox.append(el("div", { class: "audience-row" }, date, platform, count, remove));
+    });
+    audienceBox.append(el("button", { class: "btn sm", type: "button", style: { marginTop: 4 }, onclick: () => { audience.push({ date: todayISO(), platform: "yt", count: 0 }); renderAudience(); } }, "+ Snapshot"));
+  };
+  renderAudience();
+
+  // Testimonials (#98)
+  let testimonials = (c.testimonials || []).slice();
+  const testBox = el("div", { class: "testimonials" });
+  const renderTests = () => {
+    testBox.innerHTML = "";
+    testimonials.forEach((t, i) => {
+      const date = input(t.date || todayISO(), "date");
+      date.addEventListener("input", () => { testimonials[i].date = date.value; });
+      const quote = el("textarea", { class: "textarea", placeholder: "“They were a dream to work with…”" }, t.quote || "");
+      quote.addEventListener("input", () => { testimonials[i].quote = quote.value; });
+      const remove = el("button", { class: "btn sm danger", type: "button", onclick: () => { testimonials.splice(i, 1); renderTests(); } }, "×");
+      testBox.append(el("div", { class: "test-row" }, date, quote, remove));
+    });
+    testBox.append(el("button", { class: "btn sm", type: "button", style: { marginTop: 4 }, onclick: () => { testimonials.push({ date: todayISO(), quote: "" }); renderTests(); } }, "+ Add testimonial"));
+  };
+  renderTests();
 
   const body = el("div", { class: "form-grid" },
     field("Name", name),
@@ -260,12 +414,19 @@ export function openContactForm(contact) {
     field("Company", company, { full: true }),
     field("Email", email),
     field("Phone", phone),
-    field("Notes", notes, { full: true }),
+    field("Tags (comma-separated)", tags, { full: true }),
+    el("div", { class: "field full" }, el("label", {}, "Default rates ($)"), rateGrid),
+    el("div", { class: "field full" }, el("label", {}, "Audience snapshots"), audienceBox),
+    el("div", { class: "field full" }, el("label", {}, "Testimonials"), testBox),
+    el("div", { class: "field full" }, el("label", {}, "Brand wiki (markdown)"), wikiMd),
+    field("Quick notes", notes, { full: true }),
   );
 
   let modal;
   const save = () => {
     if (!name.value.trim()) { toast("Name required", "warn"); return; }
+    const defaultRates = {};
+    Object.entries(rateInputs).forEach(([k, inp]) => { if (+inp.value) defaultRates[k] = +inp.value; });
     Contacts.save({
       id: c.id,
       name: name.value.trim(),
@@ -274,6 +435,11 @@ export function openContactForm(contact) {
       email: email.value.trim(),
       phone: phone.value.trim(),
       notes: notes.value,
+      tags: tags.value.split(",").map((s) => s.trim()).filter(Boolean),
+      wikiMd: wikiMd.value,
+      defaultRates,
+      audience: audience.filter((a) => a.count || a.date),
+      testimonials: testimonials.filter((t) => t.quote?.trim()),
     });
     toast(isNew ? "Contact added" : "Contact updated");
     modal.close();
@@ -283,7 +449,7 @@ export function openContactForm(contact) {
     el("button", { class: "btn", onclick: () => modal.close() }, "Cancel"),
     el("button", { class: "btn primary", onclick: save }, isNew ? "Add contact" : "Save"),
   );
-  modal = openModal({ title: isNew ? "New contact" : "Edit contact", body, footer });
+  modal = openModal({ title: isNew ? "New contact" : "Edit contact", body, footer, wide: true });
   setTimeout(() => name.focus(), 30);
 }
 

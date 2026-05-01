@@ -1,4 +1,4 @@
-import { el, fmtMoney, fmtMoneyShort, monthKey, monthLabel, netFee, serviceMeta } from "../utils.js";
+import { el, fmtMoney, fmtMoneyShort, monthKey, monthLabel, netFee, serviceMeta, dsoOf, agingBucket, dueDate, daysPastDue } from "../utils.js";
 import { Deals, Bills, Settings, subscribe } from "../store.js";
 
 export default function reports() {
@@ -169,6 +169,114 @@ export default function reports() {
           ))),
         ),
       ),
+
+      // ---- DSO trend (#74) + Aging buckets (#76) ----
+      (function () {
+        const dso = dsoOf(yDeals);
+        const open = deals.filter((d) => !d.paid && d.invoiceDate);
+        const buckets = { current: 0, "0-30": 0, "31-60": 0, "61-90": 0, "90+": 0 };
+        open.forEach((d) => { const k = agingBucket(d); if (k && buckets[k] != null) buckets[k] += netFee(d); });
+        const totalOpen = Object.values(buckets).reduce((a, b) => a + b, 0);
+        return el("div", { class: "dash-grid" },
+          el("div", { class: "card" },
+            el("h3", {}, `Days Sales Outstanding · ${year}`),
+            el("div", { class: "kpi-value" }, `${dso}d`),
+            el("div", { class: "kpi-sub" }, `Median days from invoice to paid (n=${yDeals.filter((d) => d.paid && d.invoiceDate && d.paidDate).length})`),
+          ),
+          el("div", { class: "card" },
+            el("h3", {}, "Invoice aging (open)"),
+            el("table", { class: "data" },
+              el("tbody", {}, ...Object.entries(buckets).map(([k, v]) =>
+                el("tr", {},
+                  el("td", {}, el("span", { class: `pill ${k === "current" ? "blue" : k === "90+" ? "red" : k.startsWith("6") ? "amber" : "gray"}` }, k)),
+                  el("td", { class: "num" }, fmtMoney(v)),
+                  el("td", { class: "num small muted" }, totalOpen ? `${Math.round((v / totalOpen) * 100)}%` : "—"),
+                ),
+              )),
+            ),
+          ),
+        );
+      })(),
+
+      // ---- Brand cohort retention (#71) + Concentration (#72) ----
+      (function () {
+        const allDeals = Deals.all();
+        const acquiredByYear = {};
+        const brandFirst = {};
+        allDeals.forEach((d) => {
+          const sd = (d.serviceDate || d.paidDate || "").slice(0, 4);
+          if (!sd) return;
+          if (!brandFirst[d.company] || sd < brandFirst[d.company]) brandFirst[d.company] = sd;
+        });
+        Object.entries(brandFirst).forEach(([brand, firstYr]) => {
+          (acquiredByYear[firstYr] = acquiredByYear[firstYr] || []).push(brand);
+        });
+        const cohortYears = Object.keys(acquiredByYear).sort();
+        const horizon = ["+0", "+1", "+2", "+3", "+4", "+5"];
+
+        const cohortRows = cohortYears.map((cy) => {
+          const cohortBrands = acquiredByYear[cy];
+          const row = { cohort: cy, size: cohortBrands.length };
+          horizon.forEach((h, i) => {
+            const targetYr = +cy + i;
+            const active = cohortBrands.filter((b) => allDeals.some((d) => d.company === b && (d.serviceDate || "").startsWith(String(targetYr)))).length;
+            row[h] = cohortBrands.length ? Math.round((active / cohortBrands.length) * 100) : 0;
+          });
+          return row;
+        });
+
+        const yearTotals = {};
+        yDeals.forEach((d) => { yearTotals[d.company] = (yearTotals[d.company] || 0) + netFee(d); });
+        const sortedTotals = Object.values(yearTotals).sort((a, b) => b - a);
+        const totalY = sortedTotals.reduce((a, b) => a + b, 0);
+        const top1 = sortedTotals[0] || 0;
+        const top3 = sortedTotals.slice(0, 3).reduce((a, b) => a + b, 0);
+        const hhi = Math.round(sortedTotals.reduce((s, v) => s + Math.pow(v / Math.max(1, totalY) * 100, 2), 0));
+        const concPct = totalY ? Math.round((top1 / totalY) * 100) : 0;
+        const concClass = concPct >= 40 ? "red" : concPct >= 25 ? "amber" : "green";
+
+        return el("div", { class: "dash-grid" },
+          el("div", { class: "card" },
+            el("h3", {}, "Brand-cohort retention (% of cohort active)"),
+            cohortYears.length === 0
+              ? el("div", { class: "empty small" }, "No deals yet.")
+              : el("table", { class: "data" },
+                  el("thead", {}, el("tr", {},
+                    el("th", {}, "Cohort"),
+                    el("th", { class: "num" }, "Brands"),
+                    ...horizon.map((h) => el("th", { class: "num" }, h)),
+                  )),
+                  el("tbody", {}, ...cohortRows.map((r) =>
+                    el("tr", {},
+                      el("td", { style: { fontWeight: 600 } }, r.cohort),
+                      el("td", { class: "num" }, r.size),
+                      ...horizon.map((h) => {
+                        const v = r[h];
+                        const sat = Math.min(1, v / 100);
+                        return el("td", { class: "num", style: { background: `rgba(34,197,94,${sat * 0.3})`, color: v ? "var(--text)" : "var(--muted)" } }, v ? `${v}%` : "—");
+                      }),
+                    ),
+                  )),
+                ),
+          ),
+          el("div", { class: "card" },
+            el("h3", {}, `Revenue concentration · ${year}`),
+            el("div", { class: "kpi-value" }, `${concPct}%`),
+            el("div", { class: "kpi-sub" }, "Share from top brand"),
+            el("div", { style: { marginTop: 12 } },
+              el("div", { class: "spread small" }, el("span", { class: "muted" }, "Top 3 share"), el("strong", {}, `${totalY ? Math.round(top3 / totalY * 100) : 0}%`)),
+              el("div", { class: "spread small" }, el("span", { class: "muted" }, "Herfindahl–Hirschman index"), el("strong", {}, String(hhi))),
+              el("div", { class: "spread small" }, el("span", { class: "muted" }, "Brand count"), el("strong", {}, String(sortedTotals.length))),
+            ),
+            el("div", { style: { marginTop: 10 } },
+              el("span", { class: `pill ${concClass}` },
+                concPct >= 40 ? "High concentration risk"
+                : concPct >= 25 ? "Moderate concentration"
+                : "Healthy diversification"),
+            ),
+          ),
+        );
+      })(),
     );
 
     requestAnimationFrame(() => {
