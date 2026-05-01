@@ -28,6 +28,13 @@ export default function settings() {
     const lateFeePct = inp(s.lateFeePct || "", "1.5", "number");
     const defaultTerms = inp(s.defaultTerms || 30, "30", "number");
 
+    // Invoice template (#41)
+    const it = s.invoiceTemplate || {};
+    const tplLogo = inp(it.logo || "", "https:// or data:image/png;base64,…", "url");
+    const tplPrimary = inp(it.primary || "#22c55e", "#22c55e", "color");
+    const tplFooter = textarea(it.footer || "", "Thank-you note, ACH wire details, etc.");
+    const tplTaxId = inp(it.taxId || "", "EIN / VAT");
+
     const save = () => {
       Settings.update({
         businessName: businessName.value,
@@ -45,6 +52,10 @@ export default function settings() {
         cashOnHand: +cashOnHand.value || 0,
         lateFeePct: +lateFeePct.value || 0,
         defaultTerms: +defaultTerms.value || 30,
+        invoiceTemplate: {
+          logo: tplLogo.value, primary: tplPrimary.value || "#22c55e",
+          footer: tplFooter.value, taxId: tplTaxId.value,
+        },
       });
       toast("Settings saved");
     };
@@ -109,6 +120,13 @@ export default function settings() {
         el("div", { class: "form-grid" },
           field("Invoice prefix", invPrefix),
           field("Next invoice #", invNext),
+        ),
+        el("h4", { style: { fontSize: "12px", color: "var(--muted)", textTransform: "uppercase", margin: "12px 0 4px" } }, "Invoice template"),
+        el("div", { class: "form-grid" },
+          field("Logo URL or data URI", tplLogo, true),
+          field("Primary color", tplPrimary),
+          field("Tax ID (EIN/VAT)", tplTaxId),
+          field("Footer text", tplFooter, true),
         ),
       ),
 

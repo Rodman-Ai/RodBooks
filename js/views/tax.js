@@ -1,8 +1,11 @@
 // Tax workbench: Schedule C box totals, SE tax, state tax, quarterly payment log, 1099 payer tracker.
 
-import { el, fmtMoney, fmtDate, todayISO, netFee } from "../utils.js";
-import { Deals, Bills, Settings, TaxPayments, subscribe, downloadFile, toCSV } from "../store.js";
+import { el, fmtMoney, fmtDate, fmtDateShort, todayISO, netFee, parseDate } from "../utils.js";
+import { Deals, Bills, Settings, TaxPayments, Assets, subscribe, downloadFile, toCSV } from "../store.js";
 import { openModal, toast, confirmDialog } from "../ui.js";
+
+// 5-year MACRS half-year convention (cameras, computers, lights). Approximate.
+const MACRS_5 = [0.20, 0.32, 0.192, 0.1152, 0.1152, 0.0576];
 
 // Map our bill categories to Schedule C box numbers (approximate, common-case).
 const SCHED_C = {
@@ -207,8 +210,97 @@ export default function taxView() {
         ),
       ),
 
+      // Home-office calculator (#17)
+      (function () {
+        const ho = settings.homeOffice || { sqft: 0, totalSqft: 0, monthlyUtilities: 0 };
+        const pct = ho.totalSqft > 0 ? (ho.sqft / ho.totalSqft) : 0;
+        const yearlyUtilities = (+ho.monthlyUtilities || 0) * 12;
+        const deduction = yearlyUtilities * pct;
+        const sqft = el("input", { class: "input", type: "number", min: "0", value: ho.sqft || "" });
+        const totalSqft = el("input", { class: "input", type: "number", min: "0", value: ho.totalSqft || "" });
+        const monthlyUtilities = el("input", { class: "input", type: "number", step: "0.01", min: "0", value: ho.monthlyUtilities || "" });
+        const out = el("div", { class: "small muted", style: { marginTop: 8 } });
+        const refresh = () => {
+          const p = (+totalSqft.value || 0) > 0 ? (+sqft.value / +totalSqft.value) : 0;
+          const yu = (+monthlyUtilities.value || 0) * 12;
+          out.textContent = `Business-use %: ${(p * 100).toFixed(1)}% · Annual utilities: ${fmtMoney(yu)} · Deduction: ${fmtMoney(yu * p)}`;
+        };
+        [sqft, totalSqft, monthlyUtilities].forEach((i) => i.addEventListener("input", refresh));
+        refresh();
+        const save = () => {
+          Settings.update({ homeOffice: { sqft: +sqft.value || 0, totalSqft: +totalSqft.value || 0, monthlyUtilities: +monthlyUtilities.value || 0 } });
+          toast("Home-office updated");
+        };
+        return el("div", { class: "card" },
+          el("h3", {}, "Home-office deduction"),
+          el("div", { class: "small muted", style: { marginBottom: 8 } }, "IRS regular method: business-use % × utilities. (Simplified method = $5 × sq ft, max $1,500.)"),
+          el("div", { class: "form-grid" },
+            field2("Office sq ft", sqft),
+            field2("Total home sq ft", totalSqft),
+            field2("Monthly utilities ($)", monthlyUtilities),
+          ),
+          out,
+          el("div", { style: { marginTop: 12 } }, el("button", { class: "btn", onclick: save }, "Save")),
+        );
+      })(),
+
+      // Equipment depreciation schedule (#18)
+      (function () {
+        const assets = Assets.all();
+        const yyyy = +year;
+        const rows = assets.map((a) => {
+          const buyYear = +(a.purchaseDate || "").slice(0, 4) || 0;
+          const yearsIn = yyyy - buyYear;
+          let depThisYr = 0;
+          if (a.life === "MACRS-5" && yearsIn >= 0 && yearsIn < MACRS_5.length) {
+            depThisYr = (+a.cost || 0) * MACRS_5[yearsIn];
+          } else if (a.life === "Section179" && yearsIn === 0) {
+            depThisYr = +a.cost || 0;
+          }
+          return { ...a, depThisYr, yearsIn };
+        });
+        const total = rows.reduce((s, r) => s + r.depThisYr, 0);
+        return el("div", { class: "card" },
+          el("div", { class: "spread" },
+            el("h3", {}, `Equipment depreciation · ${year}`),
+            el("button", { class: "btn primary", onclick: () => openAssetForm() }, "+ Asset"),
+          ),
+          el("div", { class: "small muted", style: { marginBottom: 8 } }, "5-yr MACRS half-year convention. Section 179 = full expense in year acquired."),
+          rows.length === 0
+            ? el("div", { class: "empty small" }, "No depreciable assets yet. Add cameras/computers/lights for automated schedule.")
+            : el("table", { class: "data" },
+                el("thead", {}, el("tr", {},
+                  el("th", {}, "Asset"), el("th", {}, "Purchased"),
+                  el("th", { class: "num" }, "Cost"), el("th", {}, "Method"),
+                  el("th", { class: "num" }, "Year " + Math.max(0, rows[0]?.yearsIn || 0)),
+                  el("th", { class: "num" }, "Deduction"),
+                  el("th", {}, ""),
+                )),
+                el("tbody", {},
+                  ...rows.map((r) => el("tr", {},
+                    el("td", {}, r.name),
+                    el("td", { class: "small muted" }, fmtDateShort(r.purchaseDate)),
+                    el("td", { class: "num" }, fmtMoney(r.cost)),
+                    el("td", {}, el("span", { class: "pill gray" }, r.life)),
+                    el("td", { class: "small muted" }, r.yearsIn >= 0 ? `Y${r.yearsIn + 1}` : "—"),
+                    el("td", { class: "num" }, fmtMoney(r.depThisYr)),
+                    el("td", {}, el("button", { class: "btn sm", onclick: () => openAssetForm(r) }, "Edit")),
+                  )),
+                  el("tr", { style: { borderTop: "2px solid var(--line-2)" } },
+                    el("td", { style: { fontWeight: 700 }, colspan: "5" }, `Total ${year}`),
+                    el("td", { class: "num", style: { fontWeight: 700 } }, fmtMoney(total)),
+                    el("td", {}, ""),
+                  ),
+                ),
+              ),
+        );
+      })(),
+
       el("div", { class: "card" },
-        el("h3", {}, `1099-NEC tracker · ${year}`),
+        el("div", { class: "spread" },
+          el("h3", {}, `1099-NEC tracker · ${year}`),
+          owedForms.length ? el("button", { class: "btn", onclick: () => generate1099Pdfs(owedForms, year) }, "Generate 1099 PDFs") : null,
+        ),
         el("div", { class: "small muted", style: { marginBottom: 8 } }, `Brands that paid you ≥ $600 owe you a 1099-NEC by Jan 31, ${+year + 1}.`),
         owedForms.length === 0
           ? el("div", { class: "empty small" }, "No payers crossed the $600 threshold yet.")
@@ -299,8 +391,118 @@ function openTaxPaymentForm(payment) {
   setTimeout(() => amount.focus(), 30);
 }
 
+function field2(label, control, full) {
+  return el("div", { class: `field ${full ? "full" : ""}` }, el("label", {}, label), control);
+}
+
+function openAssetForm(asset) {
+  const isNew = !asset?.id;
+  const a = asset || { name: "", category: "Equipment", purchaseDate: todayISO(), cost: 0, life: "MACRS-5", notes: "" };
+  const name = el("input", { class: "input", value: a.name || "", placeholder: "Sony A7iv body" });
+  const category = el("input", { class: "input", value: a.category || "Equipment", placeholder: "Equipment / Computer / Lighting" });
+  const purchaseDate = el("input", { class: "input", type: "date", value: a.purchaseDate || todayISO() });
+  const cost = el("input", { class: "input", type: "number", step: "0.01", min: "0", value: a.cost || "" });
+  const life = el("select", { class: "select" });
+  ["MACRS-5", "Section179"].forEach((k) => {
+    const o = el("option", { value: k }, k === "MACRS-5" ? "MACRS 5-year (cameras, computers, lights)" : "Section 179 (full expense year 1)");
+    if (k === a.life) o.selected = true;
+    life.append(o);
+  });
+  const notes = el("textarea", { class: "textarea" }, a.notes || "");
+  const body = el("div", { class: "form-grid" },
+    field2("Name", name, true),
+    field2("Category", category),
+    field2("Purchase date", purchaseDate),
+    field2("Cost ($)", cost),
+    field2("Method", life),
+    field2("Notes", notes, true),
+  );
+  let m;
+  const save = () => {
+    if (!name.value.trim()) { toast("Name required", "warn"); return; }
+    if (!cost.value) { toast("Cost required", "warn"); return; }
+    Assets.save({ id: a.id, name: name.value.trim(), category: category.value, purchaseDate: purchaseDate.value, cost: +cost.value || 0, life: life.value, notes: notes.value });
+    toast(isNew ? "Asset added" : "Updated");
+    m.close();
+  };
+  const footer = el("div", { class: "row" },
+    el("div", { class: "spacer" }),
+    !isNew && el("button", { class: "btn danger", onclick: async () => {
+      const ok = await confirmDialog({ title: "Delete asset?", danger: true, confirmLabel: "Delete" });
+      if (ok) { Assets.remove(a.id); m.close(); }
+    } }, "Delete"),
+    el("button", { class: "btn", onclick: () => m.close() }, "Cancel"),
+    el("button", { class: "btn primary", onclick: save }, isNew ? "Add asset" : "Save"),
+  );
+  m = openModal({ title: isNew ? "New depreciable asset" : "Edit asset", body, footer });
+  setTimeout(() => name.focus(), 30);
+}
+
 function field(label, control, full) {
   return el("div", { class: `field ${full ? "full" : ""}` }, el("label", {}, label), control);
+}
+
+// 1099-NEC PDF generator (#38): one printable summary per payer.
+function generate1099Pdfs(owedForms, year) {
+  if (!window.html2pdf) { toast("PDF library not loaded yet", "warn"); return; }
+  const s = Settings.get();
+  // Build a single multi-page document; each payer gets its own page.
+  const wrapper = document.createElement("div");
+  owedForms.forEach(([payer, total], idx) => {
+    const html = `
+      <div style="background:#fff;color:#111;padding:36px;font-family:-apple-system,sans-serif;line-height:1.5;${idx > 0 ? "page-break-before:always;" : ""}">
+        <div style="border:2px solid #111;padding:18px;border-radius:8px">
+          <div style="display:flex;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:10px;margin-bottom:14px">
+            <div>
+              <div style="font-size:18px;font-weight:800">FORM 1099-NEC SUMMARY · ${year}</div>
+              <div style="color:#444;font-size:12px">For nonemployee compensation. Submit official IRS form to the recipient by Jan 31.</div>
+            </div>
+            <div style="text-align:right;font-size:11px;color:#444">
+              Generated ${new Date().toLocaleDateString()}
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:18px">
+            <div>
+              <div style="font-size:10px;color:#666;text-transform:uppercase">Payer (you)</div>
+              <div style="font-weight:700">${(s.businessName || "[Your business]").replace(/</g, "&lt;")}</div>
+              <div style="white-space:pre-wrap;color:#444;font-size:13px">${(s.address || "[address]").replace(/</g, "&lt;")}</div>
+              <div style="color:#444;font-size:13px">${(s.email || "").replace(/</g, "&lt;")}</div>
+              ${s.invoiceTemplate?.taxId ? `<div style="font-size:12px;margin-top:4px">EIN: ${s.invoiceTemplate.taxId.replace(/</g, "&lt;")}</div>` : ""}
+            </div>
+            <div>
+              <div style="font-size:10px;color:#666;text-transform:uppercase">Recipient</div>
+              <div style="font-weight:700">${payer.replace(/</g, "&lt;")}</div>
+              <div style="color:#444;font-size:13px">[recipient address — fill in on official form]</div>
+              <div style="color:#444;font-size:13px">[recipient TIN]</div>
+            </div>
+          </div>
+          <table style="width:100%;border-collapse:collapse;margin-top:8px">
+            <tr style="background:#f3f3f3">
+              <td style="padding:10px;border:1px solid #ccc;width:60%"><strong>Box 1 — Nonemployee compensation</strong></td>
+              <td style="padding:10px;border:1px solid #ccc;text-align:right;font-size:18px"><strong>$${total.toFixed(2)}</strong></td>
+            </tr>
+            <tr>
+              <td style="padding:10px;border:1px solid #ccc">Box 4 — Federal income tax withheld</td>
+              <td style="padding:10px;border:1px solid #ccc;text-align:right">$0.00</td>
+            </tr>
+          </table>
+          <div style="margin-top:18px;font-size:11px;color:#666">
+            This is an internal summary (RodBooks). File the official IRS Form 1099-NEC at <em>irs.gov/forms-pubs/about-form-1099-nec</em> or via your filing service. Recipient TIN required on the official form.
+          </div>
+        </div>
+      </div>
+    `;
+    const div = document.createElement("div");
+    div.innerHTML = html;
+    wrapper.append(div.firstElementChild);
+  });
+  window.html2pdf().set({
+    margin: 8,
+    filename: `1099-NEC-${year}.pdf`,
+    html2canvas: { scale: 2, backgroundColor: "#ffffff" },
+    jsPDF: { unit: "mm", format: "letter", orientation: "portrait" },
+  }).from(wrapper).save();
+  toast(`Generating ${owedForms.length} 1099 summar${owedForms.length === 1 ? "y" : "ies"}…`);
 }
 
 // Audit pack export (#40): bundle CSVs of deals/bills/mileage/payments + a summary as JSON download.

@@ -373,6 +373,23 @@ export function openBillForm(bill) {
     { value: "weekly", label: "Weekly" },
   ]);
   const receipt = input(b.receiptUrl, "url", { placeholder: "https://" });
+  const receiptPreview = el("div", { class: "small muted" });
+  const refreshReceiptPreview = () => {
+    receiptPreview.innerHTML = "";
+    if (receipt.value && /\.(png|jpe?g|gif|webp|heic)$/i.test(receipt.value)) {
+      receiptPreview.append(el("img", { src: receipt.value, style: { maxWidth: "180px", borderRadius: "6px", marginTop: "4px" }, loading: "lazy" }));
+    } else if (receipt.value) {
+      receiptPreview.append(el("a", { href: receipt.value, target: "_blank", rel: "noreferrer" }, "Open receipt ↗"));
+    }
+  };
+  receipt.addEventListener("input", refreshReceiptPreview);
+  refreshReceiptPreview();
+  // Pre-tax / deductibility flag (#15)
+  const taxStatus = selectEl(b.taxStatus || "deductible", [
+    { value: "deductible", label: "Deductible (post-tax expense)" },
+    { value: "preTax", label: "Pre-tax (HSA / 401k / pre-tax benefit)" },
+    { value: "personal", label: "Personal (non-deductible)" },
+  ]);
   const notes = el("textarea", { class: "textarea" }, b.notes || "");
   // Per-deal COGS link (#19)
   const dealOpts = [{ value: "", label: "— None (overhead) —" }].concat(
@@ -391,7 +408,9 @@ export function openBillForm(bill) {
     field("Pay method", payMethod),
     field("Recurring", recurring),
     field("Allocate to deal (COGS)", dealId, { full: true }),
+    field("Tax status", taxStatus, { full: true }),
     field("Receipt URL", receipt, { full: true }),
+    el("div", { class: "field full" }, receiptPreview),
     field("Notes", notes, { full: true }),
   );
 
@@ -411,6 +430,7 @@ export function openBillForm(bill) {
       receiptUrl: receipt.value,
       notes: notes.value,
       dealId: dealId.value || "",
+      taxStatus: taxStatus.value || "deductible",
     });
     // Learn this vendor → category mapping (#81)
     VendorRules.learn(vendor.value.trim(), category.value);
@@ -428,7 +448,7 @@ export function openBillForm(bill) {
 
 export function openContactForm(contact) {
   const isNew = !contact?.id;
-  const c = contact || { name: "", company: "", type: "brand", email: "", phone: "", notes: "", tags: [], wikiMd: "", defaultRates: {}, audience: [], testimonials: [] };
+  const c = contact || { name: "", company: "", type: "brand", email: "", phone: "", notes: "", tags: [], wikiMd: "", defaultRates: {}, audience: [], testimonials: [], emailLog: [] };
   const name = input(c.name, "text", { required: true });
   const company = input(c.company, "text");
   const type = selectEl(c.type, [
@@ -443,6 +463,25 @@ export function openContactForm(contact) {
   const notes = el("textarea", { class: "textarea" }, c.notes || "");
   const tags = input((c.tags || []).join(", "), "text", { placeholder: "tier1, rush, pays-late, great-team" });
   const wikiMd = el("textarea", { class: "textarea", style: { minHeight: "120px" }, placeholder: "Brand notes (markdown OK)" }, c.wikiMd || "");
+
+  // Email-thread paste log (#52)
+  let emailLog = (c.emailLog || []).slice();
+  const emailLogBox = el("div", { class: "email-log" });
+  const renderEmailLog = () => {
+    emailLogBox.innerHTML = "";
+    emailLog.forEach((e, i) => {
+      const date = input(e.date || todayISO(), "date");
+      date.addEventListener("input", () => { emailLog[i].date = date.value; });
+      const subject = input(e.subject || "", "text", { placeholder: "Subject" });
+      subject.addEventListener("input", () => { emailLog[i].subject = subject.value; });
+      const body = el("textarea", { class: "textarea", style: { minHeight: "60px" }, placeholder: "Paste email body" }, e.body || "");
+      body.addEventListener("input", () => { emailLog[i].body = body.value; });
+      const remove = el("button", { class: "btn sm danger", type: "button", onclick: () => { emailLog.splice(i, 1); renderEmailLog(); } }, "×");
+      emailLogBox.append(el("div", { class: "email-row" }, date, subject, remove, body));
+    });
+    emailLogBox.append(el("button", { class: "btn sm", type: "button", style: { marginTop: 4 }, onclick: () => { emailLog.push({ date: todayISO(), subject: "", body: "" }); renderEmailLog(); } }, "+ Email"));
+  };
+  renderEmailLog();
 
   // Portfolio links (#97)
   let portfolioLinks = (c.portfolioLinks || []).slice();
@@ -522,6 +561,7 @@ export function openContactForm(contact) {
     el("div", { class: "field full" }, el("label", {}, "Portfolio links"), portBox),
     el("div", { class: "field full" }, el("label", {}, "Testimonials"), testBox),
     el("div", { class: "field full" }, el("label", {}, "Brand wiki (markdown)"), wikiMd),
+    el("div", { class: "field full" }, el("label", {}, "Email log (paste threads)"), emailLogBox),
     field("Quick notes", notes, { full: true }),
   );
 
@@ -540,6 +580,7 @@ export function openContactForm(contact) {
       notes: notes.value,
       tags: tags.value.split(",").map((s) => s.trim()).filter(Boolean),
       wikiMd: wikiMd.value,
+      emailLog: emailLog.filter((e) => (e.subject || "").trim() || (e.body || "").trim()),
       defaultRates,
       audience: audience.filter((a) => a.count || a.date),
       testimonials: testimonials.filter((t) => t.quote?.trim()),
