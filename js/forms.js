@@ -67,9 +67,30 @@ export function openDealForm(deal) {
           const rate = c.defaultRates[svc.value];
           if (rate && !fee.value) { fee.value = rate; recalcNet(); }
         }
+        refreshSmartFee();
       }
     }
   });
+
+  // Smart fee suggestion (#82): when brand + service known, surface average
+  // accepted fee from your history.
+  const smartFeeHint = el("div", { class: "small muted" });
+  function refreshSmartFee() {
+    const ctxBrand = (company.value || "").trim().toLowerCase();
+    const ctxSvc = (svc.value || "").toLowerCase();
+    if (!ctxBrand && !ctxSvc) { smartFeeHint.textContent = ""; return; }
+    const history = Deals.all().filter((dl) => dl.id !== d.id);
+    const sameBoth = history.filter((dl) => (dl.company || "").toLowerCase() === ctxBrand && (dl.svc || "").toLowerCase() === ctxSvc && +dl.fee > 0);
+    const sameSvc = history.filter((dl) => (dl.svc || "").toLowerCase() === ctxSvc && +dl.fee > 0);
+    let basis = sameBoth.length >= 2 ? sameBoth : sameSvc.length >= 3 ? sameSvc : null;
+    if (!basis) { smartFeeHint.textContent = ""; return; }
+    const sorted = basis.map((dl) => +dl.fee).sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
+    const last = basis.sort((a, b) => (b.serviceDate || "").localeCompare(a.serviceDate || ""))[0];
+    smartFeeHint.innerHTML = `<span style="color:var(--info)">💡 ${basis === sameBoth ? "This brand" : "This service"}: median ${fmtMoney(median)} (n=${basis.length})${last?.serviceDate ? ", last " + fmtMoney(+last.fee) + " on " + last.serviceDate : ""}</span>`;
+  }
+  svc.addEventListener("change", refreshSmartFee);
+  setTimeout(refreshSmartFee, 50);
 
   const svc = selectEl(d.svc, SERVICE_OPTIONS.map((s) => ({ value: s.key, label: s.label })));
   const fee = input(d.fee, "number", { step: "0.01", min: "0" });
@@ -92,6 +113,22 @@ export function openDealForm(deal) {
   const notesUrl = input(d.notesUrl, "url", { placeholder: "https://" });
   const transactionId = input(d.transactionId, "text", { placeholder: "Bank/Stripe ref" });
   const notes = el("textarea", { class: "textarea", placeholder: "Notes" }, d.notes || "");
+  // Time tracking (#75): hours worked → effective hourly rate.
+  const hoursWorked = input(d.hoursWorked || "", "number", { step: "0.25", min: "0", placeholder: "e.g. 6" });
+  const hourlyHint = el("div", { class: "small muted" });
+  const refreshHourly = () => {
+    const h = +hoursWorked.value || 0;
+    if (!h) { hourlyHint.textContent = ""; return; }
+    const rate = (((+fee.value || 0) * (1 - (+partnerFee.value || 0) / 100)) / h);
+    hourlyHint.textContent = `Effective rate: ${fmtMoney(rate)}/hr`;
+  };
+  hoursWorked.addEventListener("input", refreshHourly);
+  // Per-platform performance attribution (#94): post-publish metrics.
+  const perfPlatform = selectEl(d.perfPlatform || "", [{ value: "", label: "—" }, { value: "yt", label: "YouTube" }, { value: "ig", label: "Instagram" }, { value: "tt", label: "TikTok" }, { value: "x", label: "X" }, { value: "ln", label: "LinkedIn" }, { value: "fb", label: "Facebook" }]);
+  const perfViews = input(d.perfViews || "", "number", { step: "1", min: "0" });
+  const perfEngagements = input(d.perfEngagements || "", "number", { step: "1", min: "0" });
+  // Foreign-wire fee (#30): manual flag + amount logged into deal.
+  const wireFee = input(d.wireFee || "", "number", { step: "0.01", min: "0", placeholder: "e.g. 25" });
   const baseCcy = (Settings.get().currency || "USD");
   const dealCcy = selectEl(d.currency || baseCcy, ["USD", "EUR", "GBP", "CAD", "AUD", "JPY", "INR", "CHF", "BRL", "MXN", "SGD"].map((v) => ({ value: v, label: v })));
   const fxRate = input(d.fxRate || "", "number", { step: "0.000001", min: "0", placeholder: `to ${baseCcy} (1.00 if same)` });
@@ -261,6 +298,7 @@ export function openDealForm(deal) {
     field("Partner fee %", partnerFee),
     field("Paid amount (actual)", paidAmount),
     el("div", { class: "field full small muted" }, netHint),
+    el("div", { class: "field full" }, smartFeeHint),
     field("Service / Filming date", serviceDate),
     field("Post date", postDate),
     field("Draft due", draftDue),
@@ -290,6 +328,12 @@ export function openDealForm(deal) {
     field("Portal URL", portalUrl),
     field("Notes URL (GPT/Doc)", notesUrl),
     field("Transaction / Ref", transactionId),
+    field("Foreign-wire fee ($)", wireFee),
+    field("Hours worked", hoursWorked),
+    el("div", { class: "field full small muted" }, hourlyHint),
+    field("Performance: platform", perfPlatform),
+    field("Performance: views", perfViews),
+    field("Performance: engagements", perfEngagements),
     field("Notes", notes, { full: true }),
   );
 
@@ -336,6 +380,11 @@ export function openDealForm(deal) {
       creditNoteOf: creditNoteOf.value || "",
       currency: dealCcy.value || baseCcy,
       fxRate: dealCcy.value === baseCcy ? 1 : (+fxRate.value || 0),
+      hoursWorked: +hoursWorked.value || 0,
+      perfPlatform: perfPlatform.value,
+      perfViews: +perfViews.value || 0,
+      perfEngagements: +perfEngagements.value || 0,
+      wireFee: +wireFee.value || 0,
       agentId: agent.value && agent.value !== "__new" ? agent.value : "",
       agentPct: +agentPct.value || 0,
       exclusivityFrom: exclusivityFrom.value,
@@ -396,12 +445,22 @@ export function openBillForm(bill) {
   const ocrStatus = el("span", { class: "small muted" });
   cameraInput.addEventListener("change", async () => {
     const f = cameraInput.files?.[0]; if (!f) return;
+    const { fileToDataUrl } = await import("./ocr.js");
+    const dataUrl = await fileToDataUrl(f);
+    receipt.value = dataUrl;
+    refreshReceiptPreview();
+    if (!navigator.onLine) {
+      // Offline: queue for later OCR + parsing (#91).
+      ocrStatus.innerHTML = `<span style="color:var(--warn)">Offline — image saved locally. Will OCR when back online.</span>`;
+      try {
+        const { enqueue } = await import("./offlineQueue.js");
+        await enqueue({ kind: "receipt", dataUrl, vendorHint: vendor.value, billId: b.id || null });
+      } catch (e) { /* IDB unavailable; image still pinned in form */ }
+      return;
+    }
     ocrStatus.textContent = "Reading receipt…";
     try {
-      const { ocrImage, extractReceiptFields, fileToDataUrl } = await import("./ocr.js");
-      const dataUrl = await fileToDataUrl(f);
-      receipt.value = dataUrl;
-      refreshReceiptPreview();
+      const { ocrImage, extractReceiptFields } = await import("./ocr.js");
       const text = await ocrImage(f, (p) => { ocrStatus.textContent = `Reading receipt… ${(p * 100).toFixed(0)}%`; });
       const fields = extractReceiptFields(text);
       if (fields.vendor && !vendor.value) vendor.value = fields.vendor;

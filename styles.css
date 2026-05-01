@@ -290,7 +290,7 @@ table.data .truncate { max-width: 220px; overflow: hidden; text-overflow: ellips
 @media (max-width: 860px) {
   #app {
     grid-template-columns: 1fr;
-    grid-template-rows: 56px 1fr 60px;
+    grid-template-rows: 56px 1fr auto;
     grid-template-areas:
       "top"
       "main"
@@ -307,10 +307,10 @@ table.data .truncate { max-width: 220px; overflow: hidden; text-overflow: ellips
   #menuBtn { display: grid; }
   .view { padding: 14px 14px calc(14px + var(--safe-bottom)); }
   .tabbar {
-    grid-area: tab; display: grid; grid-template-columns: repeat(5, 1fr);
+    grid-area: tab; display: grid; grid-template-columns: repeat(6, 1fr); grid-auto-rows: auto;
     background: var(--bg-1); border-top: 1px solid var(--line);
     padding-bottom: var(--safe-bottom);
-    position: sticky; bottom: 0;
+    position: sticky; bottom: 0; max-height: 50vh;
   }
   .tabbar a {
     display: flex; flex-direction: column; align-items: center; justify-content: center;

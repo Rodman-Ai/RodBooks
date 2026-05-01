@@ -96,6 +96,7 @@ export default function invoices() {
                     el("td", { class: "small muted" }, fmtDate(d.paidDate) || "—"),
                     el("td", { class: "small muted" }, d.payMethod || "—"),
                     el("td", {},
+                      !d.paid ? el("button", { class: "btn sm", title: "Compose reminder email", onclick: (e) => { e.stopPropagation(); composeReminder(d); } }, "Remind") : null,
                       el("button", { class: "btn sm", onclick: (e) => { e.stopPropagation(); previewInvoice(d); } }, "Print"),
                     ),
                   ));
@@ -117,6 +118,44 @@ function parseDateOrNow(s) {
   if (!s) return null;
   const d = new Date(s);
   return isNaN(d) ? null : d;
+}
+
+function composeReminder(deal) {
+  // Auto-reminder mailto (#42). Picks tone by days-past-due (gentle / firm / final).
+  const dpd = (function () {
+    const issue = deal.invoiceDate || deal.serviceDate;
+    if (!issue || deal.paid) return 0;
+    const due = new Date(issue);
+    due.setDate(due.getDate() + (deal.terms || Settings.get().defaultTerms || 30));
+    return Math.round((Date.now() - due.getTime()) / 86400000);
+  })();
+  const contact = Contacts.get(deal.contactId);
+  const s = Settings.get();
+  const yourName = s.businessName || "Creator";
+  const amount = deal.paidAmount ? `$${(+deal.paidAmount).toFixed(2)}` : `$${(+deal.fee || 0).toFixed(2)}`;
+  let tone = "gentle", subject, body;
+  if (dpd <= 0) { tone = "preview"; }
+  else if (dpd <= 14) tone = "gentle";
+  else if (dpd <= 45) tone = "firm";
+  else tone = "final";
+
+  if (tone === "preview") {
+    subject = `Invoice ${deal.invoiceNumber || ""} — heads up before due`;
+    body = `Hi,\n\nQuick heads-up that invoice ${deal.invoiceNumber || ""} for ${amount} is approaching its due date${deal.invoiceDate ? ` (issued ${deal.invoiceDate}, net ${deal.terms || s.defaultTerms || 30}).` : "."}\n\nLet me know if there's anything else you need from me to process it.\n\nThanks,\n${yourName}`;
+  } else if (tone === "gentle") {
+    subject = `Friendly reminder · invoice ${deal.invoiceNumber || ""}`;
+    body = `Hi,\n\nJust a friendly nudge — invoice ${deal.invoiceNumber || ""} for ${amount} is now ${dpd} day${dpd === 1 ? "" : "s"} past the net ${deal.terms || s.defaultTerms || 30} terms. If it's already in flight, no need to reply. Otherwise, happy to resend the PDF or update payment instructions.\n\nThanks,\n${yourName}`;
+  } else if (tone === "firm") {
+    subject = `Past due · invoice ${deal.invoiceNumber || ""}`;
+    body = `Hi,\n\nFollowing up on invoice ${deal.invoiceNumber || ""} for ${amount}, which is now ${dpd} days past due.\n\nCould you let me know the status? Happy to provide whatever you need to get this processed.\n\nBest,\n${yourName}`;
+  } else {
+    subject = `Final notice · invoice ${deal.invoiceNumber || ""}`;
+    body = `Hi,\n\nThis is a final reminder that invoice ${deal.invoiceNumber || ""} for ${amount} is now ${dpd} days past due. Please confirm a payment date by end of week, or let me know what's holding it up so we can resolve it.\n\nBest,\n${yourName}`;
+  }
+  const to = contact?.email || "";
+  const url = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  window.location.href = url;
+  toast("Composed in your mail client");
 }
 
 export function previewInvoice(deal) {

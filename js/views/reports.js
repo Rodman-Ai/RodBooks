@@ -68,6 +68,14 @@ export default function reports() {
             return s;
           })(),
           el("a", { class: "btn", href: "#/reports/custom" }, "Custom pivot →"),
+          el("button", { class: "btn", onclick: async () => {
+            const { previewDigest } = await import("../digest.js");
+            previewDigest();
+          } }, "Weekly digest"),
+          el("button", { class: "btn", onclick: async () => {
+            const { downloadDigestPdf } = await import("../digest.js");
+            try { await downloadDigestPdf(); } catch (e) { (await import("../ui.js")).toast(e.message, "warn"); }
+          } }, "Download digest PDF"),
           el("button", { class: "btn", onclick: () => window.print() }, "Print"),
         ),
       ),
