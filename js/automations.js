@@ -184,6 +184,80 @@ export function generateProposals() {
     });
   }
 
+  // 9. Subscription price-change tracker (#20)
+  const subsByVendor = {};
+  bills.filter((b) => b.recurring === "monthly").forEach((b) => {
+    if (!subsByVendor[b.vendor]) subsByVendor[b.vendor] = [];
+    subsByVendor[b.vendor].push(b);
+  });
+  const priceChanges = [];
+  Object.entries(subsByVendor).forEach(([vendor, list]) => {
+    if (list.length < 2) return;
+    const sorted = list.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    const latest = sorted[0];
+    const prev = sorted.find((b) => b.id !== latest.id && +b.amount !== +latest.amount);
+    if (prev && Math.abs(+latest.amount - +prev.amount) > 0.5) {
+      priceChanges.push({ vendor, from: +prev.amount, to: +latest.amount, sinceDate: prev.date });
+    }
+  });
+  if (priceChanges.length) {
+    proposals.push({
+      id: "sub-price-change",
+      title: `Detected ${priceChanges.length} subscription price change${priceChanges.length === 1 ? "" : "s"}`,
+      description: "Recurring vendor charges that changed since the prior cycle. Review and cancel/downgrade if undesired.",
+      severity: priceChanges.some((p) => p.to > p.from) ? "medium" : "info",
+      count: priceChanges.length,
+      preview: priceChanges.slice(0, 6).map((p) => `${p.vendor}: $${p.from} → $${p.to}${p.to > p.from ? " ↑" : " ↓"}`),
+      apply() {
+        priceChanges.forEach((p) => {
+          const v = contacts.find((c) => (c.name || "").toLowerCase() === p.vendor.toLowerCase());
+          // No-op on contact since vendor is just a string here; just acknowledge.
+        });
+        setRule("sub-price-change-ack", { enabled: true, ackedAt: Date.now() });
+      },
+    });
+  }
+
+  // 10. Anomaly detection (#87): unusually large single bill or sudden 3x dollar spike vs trailing-3-month avg.
+  const anomalies = [];
+  const billsByMonth = {};
+  bills.forEach((b) => { const k = (b.date || "").slice(0, 7); if (!k) return; (billsByMonth[k] = billsByMonth[k] || []).push(b); });
+  const months = Object.keys(billsByMonth).sort();
+  if (months.length >= 4) {
+    const last = months[months.length - 1];
+    const prev3 = months.slice(-4, -1);
+    const lastTotal = billsByMonth[last].reduce((s, b) => s + (+b.amount || 0), 0);
+    const prevAvg = prev3.reduce((s, m) => s + billsByMonth[m].reduce((ss, b) => ss + (+b.amount || 0), 0), 0) / 3;
+    if (lastTotal > prevAvg * 2 && lastTotal - prevAvg > 500) {
+      anomalies.push({ kind: "monthly_spike", desc: `${last}: $${lastTotal.toFixed(0)} vs trailing-3 avg $${prevAvg.toFixed(0)}` });
+    }
+  }
+  // Single-bill outlier: amount > 5x median bill in last 12 months
+  const recent = bills.filter((b) => {
+    const dt = new Date(b.date); return !isNaN(dt) && Date.now() - dt < 365 * 86400000;
+  });
+  if (recent.length > 10) {
+    const sortedAmts = recent.map((b) => +b.amount || 0).sort((a, b) => a - b);
+    const median = sortedAmts[Math.floor(sortedAmts.length / 2)] || 0;
+    const outliers = recent.filter((b) => (+b.amount || 0) > Math.max(500, median * 5));
+    outliers.forEach((b) => anomalies.push({ kind: "outlier", desc: `${b.vendor}: $${(+b.amount || 0).toFixed(0)} on ${b.date}` }));
+  }
+  if (anomalies.length) {
+    proposals.push({
+      id: "anomalies",
+      title: `Spotted ${anomalies.length} expense anomal${anomalies.length === 1 ? "y" : "ies"}`,
+      description: "Single bills or monthly totals that diverge from your norm.",
+      severity: "medium",
+      count: anomalies.length,
+      preview: anomalies.slice(0, 6).map((a) => a.desc),
+      apply() { setRule("anomalies-ack", { enabled: true, ackedAt: Date.now() }); },
+    });
+  }
+
+  // 11. Smart paid-date inference (#88): unpaid deals with invoice — suggest paidDate from next month-end.
+  const inferred = deals.filter((d) => !d.paid && d.invoiceDate && d.invoiceNumber).slice(0, 0); // placeholder; real matching needs bank-statement context.
+  // Skip surfacing if we have nothing concrete; future work hooks in matched bank rows.
+
   // 8. Tax reserve alert — if estimated tax > current cash collected * 30%
   const yyyy = today.getFullYear();
   const yDeals = deals.filter((d) => d.paid && (d.paidDate || "").startsWith(String(yyyy)));

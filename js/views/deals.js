@@ -1,5 +1,5 @@
-import { el, fmtMoney, fmtDate, fmtDateShort, netFee, dealStatus, serviceMeta, escHtml, debounce, todayISO, parseDate, parseSearchOperators, dealStageAge } from "../utils.js";
-import { Deals, Contacts, subscribe, downloadFile, toCSV } from "../store.js";
+import { el, fmtMoney, fmtDate, fmtDateShort, netFee, dealStatus, serviceMeta, escHtml, debounce, todayISO, parseDate, parseSearchOperators, dealStageAge, dueDate, daysPastDue, lateFee } from "../utils.js";
+import { Deals, Contacts, Settings, subscribe, downloadFile, toCSV } from "../store.js";
 import { go, getQuery, setQuery } from "../router.js";
 import { openDealForm } from "../forms.js";
 import { confirmDialog, toast } from "../ui.js";
@@ -377,6 +377,49 @@ export function dealDetail({ id }) {
         el("h3", {}, "Lifecycle"),
         dealStageTracker(d),
       ),
+      // Deliverables progress (#4)
+      d.deliverables?.length ? el("div", { class: "card" },
+        el("h3", {}, "Deliverables"),
+        (function () {
+          const done = d.deliverables.filter((x) => x.done).length;
+          const total = d.deliverables.length;
+          return el("div", {},
+            el("div", { class: "spread", style: { marginBottom: 8 } },
+              el("strong", {}, `${done} / ${total} done`),
+              el("div", { style: { width: 140, height: 6, background: "var(--bg-3)", borderRadius: 3, overflow: "hidden" } },
+                el("div", { style: { width: `${(done / total) * 100}%`, height: "100%", background: "var(--accent)" } }),
+              ),
+            ),
+            el("div", { class: "list" },
+              ...d.deliverables.map((x, i) => el("div", { class: "list-row" },
+                (function () {
+                  const cb = el("input", { type: "checkbox" });
+                  cb.checked = !!x.done;
+                  cb.addEventListener("change", () => {
+                    const next = d.deliverables.map((y, j) => j === i ? { ...y, done: cb.checked } : y);
+                    Deals.save({ id: d.id, deliverables: next });
+                  });
+                  return cb;
+                })(),
+                el("div", { style: { flex: 1, textDecoration: x.done ? "line-through" : "none", color: x.done ? "var(--muted)" : "var(--text)" } }, x.label || "—"),
+                x.due ? el("span", { class: "small muted" }, "Due " + fmtDateShort(x.due)) : null,
+              )),
+            ),
+          );
+        })(),
+      ) : null,
+      // Payment ledger (#44)
+      d.partials?.length ? el("div", { class: "card" },
+        el("h3", {}, "Payments received"),
+        el("table", { class: "data" },
+          el("thead", {}, el("tr", {}, el("th", {}, "Date"), el("th", { class: "num" }, "Amount"), el("th", {}, "Memo"))),
+          el("tbody", {}, ...d.partials.map((p) => el("tr", {},
+            el("td", { class: "small muted" }, fmtDate(p.date)),
+            el("td", { class: "num" }, fmtMoney(p.amount)),
+            el("td", { class: "small muted truncate" }, p.note || "—"),
+          ))),
+        ),
+      ) : null,
       el("div", { class: "card" },
         el("h3", {}, "Timeline"),
         el("div", { class: "detail-grid" },
@@ -384,8 +427,25 @@ export function dealDetail({ id }) {
           kv("Post date", fmtDate(d.postDate) || "—"),
           kv("Draft due", fmtDate(d.draftDue) || "—"),
           kv("Invoice date", fmtDate(d.invoiceDate) || "—"),
+          kv("Payment terms", d.terms ? `Net ${d.terms}` : "Due on receipt"),
+          kv("Due date", (function () {
+            const due = dueDate(d);
+            const dpd = daysPastDue(d);
+            if (!due) return "—";
+            const lf = lateFee(d, Settings.get().lateFeePct || 0);
+            return el("span", {},
+              fmtDate(due),
+              dpd != null && dpd > 0 ? el("span", { class: "pill red", style: { marginLeft: 6 } }, `${dpd}d overdue`) : null,
+              lf > 0 ? el("span", { class: "small muted", style: { marginLeft: 6 } }, `+ ${fmtMoney(lf)} late fee`) : null,
+            );
+          })()),
           kv("Paid date", fmtDate(d.paidDate) || "—"),
           kv("Pay method", d.payMethod || "—"),
+          d.creditNoteOf ? kv("Credit-note for", (function () {
+            const src = Deals.get(d.creditNoteOf);
+            return src ? el("a", { href: `#/deals/${src.id}` }, src.invoiceNumber || src.company) : "—";
+          })()) : null,
+          d.quotedFee && d.quotedFee !== d.fee ? kv("Quoted vs accepted", `${fmtMoney(d.quotedFee)} → ${fmtMoney(d.fee)} (${Math.round((d.fee / d.quotedFee) * 100)}%)`) : null,
         ),
       ),
       el("div", { class: "card" },

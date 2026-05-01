@@ -21,6 +21,8 @@ import automationsView from "./views/automations.js";
 import kanban from "./views/kanban.js";
 import mileageView from "./views/mileage.js";
 import activityView from "./views/activity.js";
+import taxView from "./views/tax.js";
+import templatesView from "./views/templates.js";
 
 // First-run: if there's no data at all, offer sample data automatically (once).
 (async function firstRun() {
@@ -54,6 +56,8 @@ register("/timeline", () => timelineView());
 register("/automations", () => automationsView());
 register("/activity", () => activityView());
 register("/reports", () => reports());
+register("/tax", () => taxView());
+register("/templates", () => templatesView());
 register("/settings", () => settingsView());
 
 const TITLES = {
@@ -69,6 +73,8 @@ const TITLES = {
   "/automations": "Automations",
   "/activity": "Activity",
   "/reports": "Reports",
+  "/tax": "Tax",
+  "/templates": "Templates",
   "/settings": "Settings",
 };
 
@@ -153,7 +159,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "/" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); openPalette(); }
   if (e.key === "g") {
     const next = (ev) => {
-      const map = { d: "/", b: "/deals", k: "/pipeline", i: "/invoices", e: "/bills", m: "/mileage", c: "/contacts", t: "/timeline", a: "/automations", l: "/activity", r: "/reports", s: "/settings" };
+      const map = { d: "/", b: "/deals", k: "/pipeline", i: "/invoices", e: "/bills", m: "/mileage", c: "/contacts", t: "/timeline", a: "/automations", l: "/activity", r: "/reports", x: "/tax", p: "/templates", s: "/settings" };
       const r = map[ev.key];
       if (r) go(r);
       document.removeEventListener("keydown", next, true);

@@ -20,6 +20,10 @@ const defaults = () => ({
     annualGoal: 0,
     mileageRate: 0.67, // IRS standard 2024
     lockHash: "", // sha-256 of passcode (empty = no lock)
+    state: "", // optional state code for tax estimator
+    stateRate: 0.05, // approx state effective rate
+    defaultTerms: 30, // net days
+    lateFeePct: 0, // 0 = off; e.g. 1.5 for 1.5% / month
   },
   deals: [],
   bills: [],
@@ -28,6 +32,10 @@ const defaults = () => ({
   mileage: [], // { id, date, miles, purpose, fromTo, deductible, notes }
   activity: [], // { id, ts, type, entity, entityId, label, detail }
   snapshots: [], // { id, ts, label, payload }
+  taxPayments: [], // { id, year, quarter, date, amount, method, notes }
+  contractTemplates: [], // { id, name, body, kind }
+  outreachTemplates: [], // { id, name, subject, body, kind }
+  vendorRules: [], // { id, match, category } — rule for auto-categorize
 });
 
 let cache = null;
@@ -59,6 +67,10 @@ function migrate(data) {
     mileage: data.mileage || [],
     activity: data.activity || [],
     snapshots: data.snapshots || [],
+    taxPayments: data.taxPayments || [],
+    contractTemplates: data.contractTemplates || [],
+    outreachTemplates: data.outreachTemplates || [],
+    vendorRules: data.vendorRules || [],
   };
 }
 
@@ -168,6 +180,51 @@ export const Mileage = {
   get: (id) => getState().mileage.find((m) => m.id === id),
   save: (m) => upsertCollection("mileage", m),
   remove: (id) => removeFromCollection("mileage", id),
+};
+
+export const TaxPayments = {
+  all: () => getState().taxPayments,
+  get: (id) => getState().taxPayments.find((x) => x.id === id),
+  save: (x) => upsertCollection("taxPayments", x),
+  remove: (id) => removeFromCollection("taxPayments", id),
+};
+
+export const ContractTemplates = {
+  all: () => getState().contractTemplates,
+  get: (id) => getState().contractTemplates.find((x) => x.id === id),
+  save: (x) => upsertCollection("contractTemplates", x),
+  remove: (id) => removeFromCollection("contractTemplates", id),
+};
+
+export const OutreachTemplates = {
+  all: () => getState().outreachTemplates,
+  get: (id) => getState().outreachTemplates.find((x) => x.id === id),
+  save: (x) => upsertCollection("outreachTemplates", x),
+  remove: (id) => removeFromCollection("outreachTemplates", id),
+};
+
+export const VendorRules = {
+  all: () => getState().vendorRules,
+  save: (x) => upsertCollection("vendorRules", x),
+  remove: (id) => removeFromCollection("vendorRules", id),
+  // Resolve a category from a vendor name, picking the first matching rule.
+  categoryFor(vendor) {
+    if (!vendor) return null;
+    const v = String(vendor).toLowerCase();
+    const rule = getState().vendorRules.find((r) => v.includes((r.match || "").toLowerCase()));
+    return rule?.category || null;
+  },
+  // Learn a vendor → category association (idempotent on `match`).
+  learn(vendor, category) {
+    if (!vendor || !category) return;
+    const m = vendor.toLowerCase().slice(0, 32);
+    const existing = getState().vendorRules.find((r) => r.match === m);
+    if (existing) {
+      if (existing.category !== category) upsertCollection("vendorRules", { id: existing.id, category });
+      return;
+    }
+    upsertCollection("vendorRules", { match: m, category });
+  },
 };
 
 export const Activity = {

@@ -86,7 +86,10 @@ export default function contacts() {
                 filtered.forEach((c) => {
                   const s = stats(c);
                   tbody.append(el("tr", { onclick: () => openContactForm(c) },
-                    el("td", {}, el("div", { class: "row" }, el("div", { class: "avatar" }, initials(c.name)), el("span", {}, c.name))),
+                    el("td", {},
+                      el("div", { class: "row" }, el("div", { class: "avatar" }, initials(c.name)), el("span", {}, c.name)),
+                      (c.tags && c.tags.length) ? el("div", { class: "row", style: { gap: "4px", marginTop: "4px" } }, ...c.tags.slice(0, 4).map((t) => el("span", { class: "pill gray", style: { padding: "1px 6px", fontSize: "10px" } }, t))) : null,
+                    ),
                     el("td", {}, el("span", { class: "pill gray" }, c.type || "—")),
                     el("td", { class: "small muted" }, c.email || "—"),
                     el("td", { class: "small muted" }, c.phone || "—"),
