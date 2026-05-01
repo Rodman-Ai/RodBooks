@@ -59,6 +59,21 @@ export function parseDealText(text) {
   const out = {};
   let s = text;
 
+  // Email-style headers (#84): pull brand from From:, hint from Subject:
+  const fromMatch = s.match(/^(?:From|Sender)\s*:\s*([^<\n,]+?)(?:\s*<[^>]+>)?\s*$/im);
+  if (fromMatch) {
+    // Take the domain or the "name part" as company guess
+    const fromLine = fromMatch[1].trim();
+    const dom = fromLine.match(/@([\w-]+)\./);
+    if (dom) out.company = dom[1].charAt(0).toUpperCase() + dom[1].slice(1);
+    else out.company = fromLine.split(/\s+from\s+/i)[0].trim();
+  }
+  const subjMatch = s.match(/^Subject\s*:\s*(.+)$/im);
+  if (subjMatch) {
+    // Subject often has the brand name in it; prepend so the keyword scan picks it up.
+    s = subjMatch[1] + "\n" + s;
+  }
+
   // Money: $1500 or $1,500 or $1.5k
   const money = s.match(/\$\s*([\d,]+(?:\.\d+)?)(k|m)?/i);
   if (money) {

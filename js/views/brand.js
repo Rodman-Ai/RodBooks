@@ -1,5 +1,5 @@
 import { el, fmtMoney, fmtMoneyShort, fmtDate, fmtDateShort, monthKey, monthLabel, netFee, dealStatus, serviceMeta, initials } from "../utils.js";
-import { Deals, Contacts, subscribe } from "../store.js";
+import { Deals, Contacts, Activity, subscribe } from "../store.js";
 import { go } from "../router.js";
 import { openContactForm, openDealForm } from "../forms.js";
 
@@ -97,6 +97,96 @@ export default function brandPage({ name }) {
           ),
         ),
       ),
+
+      // Pipeline value (#55) + negotiation history (#56) + rate card (#92)
+      el("div", { class: "dash-grid" },
+        (function () {
+          const open = deals.filter((d) => !d.paid);
+          const expected = open.reduce((s, d) => s + netFee(d), 0);
+          const past90 = deals.filter((d) => {
+            const dt = d.serviceDate || d.paidDate; if (!dt) return false;
+            return Date.now() - new Date(dt).getTime() < 90 * 86400000;
+          });
+          const last90 = past90.reduce((s, d) => s + netFee(d), 0);
+          return el("div", { class: "card" },
+            el("h3", {}, "Pipeline value"),
+            el("div", { class: "kpi-value" }, fmtMoney(expected)),
+            el("div", { class: "kpi-sub" }, `${open.length} open deal${open.length === 1 ? "" : "s"}`),
+            el("div", { class: "small muted", style: { marginTop: 6 } }, `Booked last 90d: ${fmtMoney(last90)}`),
+          );
+        })(),
+        (function () {
+          const quoted = deals.filter((d) => d.quotedFee && d.fee);
+          const accepted = quoted.filter((d) => d.fee >= d.quotedFee * 0.95);
+          const rate = quoted.length ? Math.round((accepted.length / quoted.length) * 100) : null;
+          return el("div", { class: "card" },
+            el("h3", {}, "Negotiation history"),
+            quoted.length === 0
+              ? el("div", { class: "small muted" }, "No quoted-fee data yet (set the Quoted fee field on new deals).")
+              : el("table", { class: "data" },
+                  el("thead", {}, el("tr", {}, el("th", {}, "Date"), el("th", { class: "num" }, "Quoted"), el("th", { class: "num" }, "Accepted"), el("th", { class: "num" }, "Δ"))),
+                  el("tbody", {}, ...quoted.slice(0, 8).map((d) => el("tr", {},
+                    el("td", { class: "small muted" }, fmtDateShort(d.serviceDate)),
+                    el("td", { class: "num" }, fmtMoney(d.quotedFee)),
+                    el("td", { class: "num" }, fmtMoney(d.fee)),
+                    el("td", { class: "num", style: { color: d.fee < d.quotedFee ? "var(--warn)" : "var(--accent)" } }, `${Math.round((d.fee / d.quotedFee - 1) * 100)}%`),
+                  ))),
+                ),
+            rate != null && el("div", { class: "small muted", style: { marginTop: 8 } }, `Accept rate at ≥ 95% of quote: ${rate}%`),
+          );
+        })(),
+      ),
+
+      // Rate card (#92): pulled from contact.defaultRates
+      contact?.defaultRates && Object.keys(contact.defaultRates).length > 0 && el("div", { class: "card" },
+        el("h3", {}, "Default rate card"),
+        el("div", { class: "row", style: { gap: "12px", flexWrap: "wrap" } },
+          ...Object.entries(contact.defaultRates).map(([k, v]) => {
+            const sm = serviceMeta(k);
+            return el("div", { style: { background: "var(--bg-2)", border: "1px solid var(--line)", borderRadius: "8px", padding: "10px 14px", minWidth: "120px" } },
+              el("div", { class: "small muted" }, sm.label),
+              el("div", { style: { fontSize: "18px", fontWeight: 700 } }, fmtMoney(v)),
+            );
+          }),
+        ),
+      ),
+
+      // Portfolio (#97)
+      contact?.portfolioLinks?.length > 0 && el("div", { class: "card" },
+        el("h3", {}, "Portfolio with this brand"),
+        el("div", { class: "stack" },
+          ...contact.portfolioLinks.map((p) => el("div", { class: "list-row" },
+            el("div", { style: { flex: 1 } },
+              el("div", {}, p.title || p.url),
+              p.metric ? el("div", { class: "small muted" }, p.metric) : null,
+            ),
+            p.url ? el("a", { class: "btn sm", href: p.url, target: "_blank", rel: "noreferrer" }, "Open ↗") : null,
+          )),
+        ),
+      ),
+
+      // Brand-scoped activity feed (#51)
+      (function () {
+        const acts = Activity.all().filter((a) => {
+          if (a.entity !== "deals" && a.entity !== "contacts") return false;
+          if (a.entity === "contacts" && a.entityId === contact?.id) return true;
+          if (a.entity === "deals") return deals.some((dl) => dl.id === a.entityId);
+          return false;
+        }).slice(0, 25);
+        if (!acts.length) return null;
+        return el("div", { class: "card" },
+          el("h3", {}, "Recent activity"),
+          el("div", { class: "list" },
+            ...acts.map((a) => el("div", { class: "list-row" },
+              el("span", { class: `pill ${a.type === "create" ? "green" : a.type === "update" ? "blue" : "red"}`, style: { minWidth: "70px", justifyContent: "center" } }, a.type),
+              el("div", { style: { flex: 1, minWidth: 0 } },
+                el("div", { class: "truncate" }, a.label),
+                el("div", { class: "small muted" }, new Date(a.ts).toLocaleString()),
+              ),
+            )),
+          ),
+        );
+      })(),
 
       // Tags + wiki + audience + testimonials
       contact && (contact.tags?.length || contact.wikiMd) && el("div", { class: "card" },

@@ -1,7 +1,7 @@
 // Reusable form builders for the main entities.
 
 import { el } from "./utils.js";
-import { Contacts, Deals, Bills, Settings, VendorRules } from "./store.js";
+import { Contacts, Deals, Bills, Settings, VendorRules, DealTemplates, Agents } from "./store.js";
 import { SERVICE_OPTIONS, todayISO, netFee, fmtMoney } from "./utils.js";
 import { openModal, toast } from "./ui.js";
 import { parseDealText } from "./nl.js";
@@ -92,6 +92,25 @@ export function openDealForm(deal) {
   const notesUrl = input(d.notesUrl, "url", { placeholder: "https://" });
   const transactionId = input(d.transactionId, "text", { placeholder: "Bank/Stripe ref" });
   const notes = el("textarea", { class: "textarea", placeholder: "Notes" }, d.notes || "");
+  const exclusivityFrom = input(d.exclusivityFrom || "", "date");
+  const exclusivityTo = input(d.exclusivityTo || "", "date");
+  const usageRightsUntil = input(d.usageRightsUntil || "", "date");
+  // Agent (#59)
+  const agentList = Agents.all();
+  const agent = selectEl(d.agentId || "", [{ value: "", label: "— None —" }].concat(agentList.map((a) => ({ value: a.id, label: a.name + (a.defaultPct ? ` (${a.defaultPct}%)` : "") })), [{ value: "__new", label: "+ New agent…" }]));
+  const agentPct = input(d.agentPct || "", "number", { step: "0.1", min: "0", max: "100", placeholder: "% commission" });
+  agent.addEventListener("change", () => {
+    if (agent.value === "__new") {
+      const name = prompt("Agent / manager name");
+      if (name) {
+        const a = Agents.save({ name: name.trim(), defaultPct: +agentPct.value || 10 });
+        agent.replaceWith(selectEl(a.id, [{ value: "", label: "— None —" }].concat(Agents.all().map((x) => ({ value: x.id, label: x.name + (x.defaultPct ? ` (${x.defaultPct}%)` : "") })), [{ value: "__new", label: "+ New agent…" }])));
+      } else agent.value = d.agentId || "";
+    } else if (agent.value) {
+      const a = Agents.get(agent.value);
+      if (a && !agentPct.value) agentPct.value = a.defaultPct || "";
+    }
+  });
   const terms = selectEl(d.terms ?? "", [
     { value: "", label: "Due on receipt" },
     { value: "15", label: "Net 15" },
@@ -105,6 +124,34 @@ export function openDealForm(deal) {
     Deals.all().filter((x) => x.id !== d.id && x.invoiceNumber).map((x) => ({ value: x.id, label: `${x.company} · ${x.invoiceNumber}` })),
   );
   const creditNoteOf = selectEl(d.creditNoteOf || "", creditOptions);
+
+  // Tiered / escalator line items (#3): when present, fee = sum of line amounts.
+  let lineItems = (d.lineItems || []).slice();
+  const linesBox = el("div", { class: "lines" });
+  const renderLines = () => {
+    linesBox.innerHTML = "";
+    lineItems.forEach((li, i) => {
+      const desc = input(li.desc || "", "text", { placeholder: "Line description" });
+      desc.addEventListener("input", () => { lineItems[i].desc = desc.value; });
+      const amt = input(li.amount || 0, "number", { step: "0.01", min: "0" });
+      amt.addEventListener("input", () => { lineItems[i].amount = +amt.value || 0; recalcFromLines(); });
+      const remove = el("button", { class: "btn sm danger", type: "button", onclick: () => { lineItems.splice(i, 1); renderLines(); recalcFromLines(); } }, "×");
+      linesBox.append(el("div", { class: "line-row" }, desc, amt, remove));
+    });
+    const total = lineItems.reduce((s, li) => s + (+li.amount || 0), 0);
+    linesBox.append(el("div", { class: "row spread", style: { marginTop: 6 } },
+      el("button", { class: "btn sm", type: "button", onclick: () => { lineItems.push({ desc: "", amount: 0 }); renderLines(); } }, "+ Add line"),
+      el("div", { class: "small muted" }, lineItems.length ? `${lineItems.length} lines · ${fmtMoney(total)}` : "Use line items for tiered/escalator deals"),
+    ));
+  };
+  function recalcFromLines() {
+    if (lineItems.length) {
+      const total = lineItems.reduce((s, li) => s + (+li.amount || 0), 0);
+      fee.value = total.toFixed(2);
+      recalcNet();
+    }
+  }
+  renderLines();
 
   // Deliverables checklist (#4)
   let deliverables = (d.deliverables || []).slice();
@@ -170,18 +217,34 @@ export function openDealForm(deal) {
   renderPartials();
 
   const netHint = el("div", { class: "small muted" }, "");
+  const feeHint = el("div", { class: "small muted" }, "");
   const recalcNet = () => {
     const n = netFee({ fee: +fee.value || 0, partnerFeePct: +partnerFee.value || 0, paidAmount: +paidAmount.value || 0 });
     netHint.textContent = `Net: ${fmtMoney(n)}`;
   };
+  // Smart fee suggestion (#82)
+  const refreshFeeHint = () => {
+    const id = contact.value && contact.value !== "__new" ? contact.value : null;
+    const svcKey = svc.value;
+    if (!id) { feeHint.textContent = ""; return; }
+    const past = Deals.all().filter((dl) => dl.contactId === id && dl.svc === svcKey && dl.fee > 0);
+    if (!past.length) { feeHint.textContent = ""; return; }
+    const fees = past.map((p) => +p.fee).sort((a, b) => a - b);
+    const med = fees[Math.floor(fees.length / 2)];
+    const max = fees[fees.length - 1];
+    feeHint.textContent = `History (${past.length}): median ${fmtMoney(med)} · max ${fmtMoney(max)}`;
+  };
   [fee, partnerFee, paidAmount].forEach((i) => i.addEventListener("input", recalcNet));
+  contact.addEventListener("change", refreshFeeHint);
+  svc.addEventListener("change", refreshFeeHint);
   recalcNet();
+  refreshFeeHint();
 
   const body = el("div", { class: "form-grid" },
     field("Brand / Company", company, { full: true }),
     field("Contact", contact),
     field("Service type", svc),
-    field("Fee ($)", fee),
+    el("div", { class: "field" }, el("label", {}, "Fee ($)"), fee, feeHint),
     field("Quoted fee ($)", quotedFee),
     field("Partner fee %", partnerFee),
     field("Paid amount (actual)", paidAmount),
@@ -198,6 +261,12 @@ export function openDealForm(deal) {
     field("Credit-note for", creditNoteOf),
     field("Invoice URL", invUrl, { full: true }),
     field("Invoice to (billing)", invoiceTo, { full: true }),
+    field("Agent / manager", agent),
+    field("Agent commission %", agentPct),
+    field("Exclusivity from", exclusivityFrom),
+    field("Exclusivity to", exclusivityTo),
+    field("Usage rights until", usageRightsUntil),
+    el("div", { class: "field full" }, el("label", {}, "Line items (tiered fees)"), linesBox),
     el("div", { class: "field full" }, el("label", {}, "Deliverables"), dlvList),
     el("div", { class: "field full" }, el("label", {}, "Payment ledger"), partialsBox),
     field("Contract URL", contractUrl),
@@ -250,6 +319,12 @@ export function openDealForm(deal) {
       notes: notes.value,
       terms: terms.value ? +terms.value : 0,
       creditNoteOf: creditNoteOf.value || "",
+      agentId: agent.value && agent.value !== "__new" ? agent.value : "",
+      agentPct: +agentPct.value || 0,
+      exclusivityFrom: exclusivityFrom.value,
+      exclusivityTo: exclusivityTo.value,
+      usageRightsUntil: usageRightsUntil.value,
+      lineItems: lineItems.filter((li) => li.desc?.trim() || +li.amount > 0),
       deliverables: deliverables.filter((x) => x.label?.trim()),
       partials: partials.filter((p) => p.amount > 0 || p.date),
       year: serviceDate.value ? +serviceDate.value.slice(0, 4) : (d.year || new Date().getFullYear()),
@@ -299,6 +374,12 @@ export function openBillForm(bill) {
   ]);
   const receipt = input(b.receiptUrl, "url", { placeholder: "https://" });
   const notes = el("textarea", { class: "textarea" }, b.notes || "");
+  // Per-deal COGS link (#19)
+  const dealOpts = [{ value: "", label: "— None (overhead) —" }].concat(
+    Deals.all().sort((a, b2) => (b2.serviceDate || "").localeCompare(a.serviceDate || "")).slice(0, 100)
+      .map((dl) => ({ value: dl.id, label: `${dl.company || "—"} · ${dl.serviceDate || ""}` })),
+  );
+  const dealId = selectEl(b.dealId || "", dealOpts);
 
   const body = el("div", { class: "form-grid" },
     field("Vendor", vendor, { full: true }),
@@ -309,6 +390,7 @@ export function openBillForm(bill) {
     field("Paid date", paidDate),
     field("Pay method", payMethod),
     field("Recurring", recurring),
+    field("Allocate to deal (COGS)", dealId, { full: true }),
     field("Receipt URL", receipt, { full: true }),
     field("Notes", notes, { full: true }),
   );
@@ -328,6 +410,7 @@ export function openBillForm(bill) {
       recurring: recurring.value,
       receiptUrl: receipt.value,
       notes: notes.value,
+      dealId: dealId.value || "",
     });
     // Learn this vendor → category mapping (#81)
     VendorRules.learn(vendor.value.trim(), category.value);
@@ -360,6 +443,25 @@ export function openContactForm(contact) {
   const notes = el("textarea", { class: "textarea" }, c.notes || "");
   const tags = input((c.tags || []).join(", "), "text", { placeholder: "tier1, rush, pays-late, great-team" });
   const wikiMd = el("textarea", { class: "textarea", style: { minHeight: "120px" }, placeholder: "Brand notes (markdown OK)" }, c.wikiMd || "");
+
+  // Portfolio links (#97)
+  let portfolioLinks = (c.portfolioLinks || []).slice();
+  const portBox = el("div", { class: "portfolio" });
+  const renderPortfolio = () => {
+    portBox.innerHTML = "";
+    portfolioLinks.forEach((p, i) => {
+      const title = input(p.title || "", "text", { placeholder: "e.g. Best-performing video for them" });
+      title.addEventListener("input", () => { portfolioLinks[i].title = title.value; });
+      const url = input(p.url || "", "url", { placeholder: "https://" });
+      url.addEventListener("input", () => { portfolioLinks[i].url = url.value; });
+      const metric = input(p.metric || "", "text", { placeholder: "e.g. 1.2M views, 3.4% CTR" });
+      metric.addEventListener("input", () => { portfolioLinks[i].metric = metric.value; });
+      const remove = el("button", { class: "btn sm danger", type: "button", onclick: () => { portfolioLinks.splice(i, 1); renderPortfolio(); } }, "×");
+      portBox.append(el("div", { class: "portfolio-row" }, title, url, metric, remove));
+    });
+    portBox.append(el("button", { class: "btn sm", type: "button", style: { marginTop: 4 }, onclick: () => { portfolioLinks.push({ title: "", url: "", metric: "" }); renderPortfolio(); } }, "+ Portfolio link"));
+  };
+  renderPortfolio();
 
   // Default rates per service type (#5)
   const dr = c.defaultRates || {};
@@ -417,6 +519,7 @@ export function openContactForm(contact) {
     field("Tags (comma-separated)", tags, { full: true }),
     el("div", { class: "field full" }, el("label", {}, "Default rates ($)"), rateGrid),
     el("div", { class: "field full" }, el("label", {}, "Audience snapshots"), audienceBox),
+    el("div", { class: "field full" }, el("label", {}, "Portfolio links"), portBox),
     el("div", { class: "field full" }, el("label", {}, "Testimonials"), testBox),
     el("div", { class: "field full" }, el("label", {}, "Brand wiki (markdown)"), wikiMd),
     field("Quick notes", notes, { full: true }),
@@ -440,6 +543,7 @@ export function openContactForm(contact) {
       defaultRates,
       audience: audience.filter((a) => a.count || a.date),
       testimonials: testimonials.filter((t) => t.quote?.trim()),
+      portfolioLinks: portfolioLinks.filter((p) => p.url?.trim() || p.title?.trim()),
     });
     toast(isNew ? "Contact added" : "Contact updated");
     modal.close();
@@ -518,6 +622,53 @@ export function openQuickAdd() {
     setTimeout(() => ta.focus(), 30);
   };
 
+  // Bulk paste — multi-line NL (#83): one deal per line, preview, confirm & create.
+  const bulkImport = () => {
+    const ta = el("textarea", { class: "textarea", placeholder: 'One deal per line, e.g.:\n"Lumira AI $1500 video due May 15"\n"Vortex Studio $800 post"\n"Echoware $2200 video paid 5/2"', style: { minHeight: "200px", fontFamily: "ui-monospace, Menlo, monospace", fontSize: "12px" } });
+    const previewBox = el("div", { class: "stack", style: { marginTop: 8 } });
+    const refresh = () => {
+      previewBox.innerHTML = "";
+      const lines = ta.value.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+      const parsed = lines.map((line) => parseDealText(line) || {});
+      previewBox.append(el("div", { class: "small muted" }, `${parsed.length} deal${parsed.length === 1 ? "" : "s"} parsed`));
+      parsed.slice(0, 30).forEach((p, i) => {
+        previewBox.append(el("div", { class: "small", style: { padding: "4px 8px", background: "var(--bg-2)", borderRadius: 6, marginTop: 4 } },
+          `${i + 1}. ${p.company || "(no brand?)"} · ${p.svc || "p"} · $${p.fee || 0}` + (p.draftDue ? ` · due ${p.draftDue}` : "") + (p.paid ? " · paid" : ""),
+        ));
+      });
+    };
+    ta.addEventListener("input", refresh);
+    let m3;
+    const submit = () => {
+      const lines = ta.value.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+      const dealsToMake = lines.map((line) => parseDealText(line) || {});
+      let created = 0;
+      dealsToMake.forEach((p) => {
+        if (!p.company) return;
+        const c = Contacts.ensure(p.company);
+        Deals.save({
+          contactId: c?.id, company: p.company, svc: p.svc || "p",
+          fee: p.fee || 0, partnerFeePct: p.partnerFeePct || 0,
+          paid: !!p.paid, paidDate: p.paid ? todayISO() : "",
+          paidAmount: p.paid ? (p.fee || 0) : 0,
+          serviceDate: p.serviceDate || todayISO(),
+          postDate: p.postDate || "", draftDue: p.draftDue || "",
+          year: +(p.serviceDate || todayISO()).slice(0, 4),
+        });
+        created++;
+      });
+      toast(`Created ${created} deal${created === 1 ? "" : "s"}`);
+      m3.close(); close();
+    };
+    const footer = el("div", { class: "row" },
+      el("div", { class: "spacer" }),
+      el("button", { class: "btn", onclick: () => m3.close() }, "Cancel"),
+      el("button", { class: "btn primary", onclick: submit }, "Create all"),
+    );
+    m3 = openModal({ title: "Bulk import deals", body: el("div", {}, ta, previewBox), footer, wide: true });
+    setTimeout(() => ta.focus(), 30);
+  };
+
   const body = el("div", { class: "stack" },
     el("div", { class: "field" },
       el("label", {}, "Type a deal in plain English"),
@@ -526,6 +677,7 @@ export function openQuickAdd() {
     el("div", { class: "row" },
       el("button", { class: "btn primary", onclick: openParsedDeal }, "Open deal form"),
       el("button", { class: "btn", onclick: pasteImport }, "Paste from email…"),
+      el("button", { class: "btn", onclick: bulkImport }, "Bulk import…"),
     ),
     el("div", { style: { borderTop: "1px solid var(--line)", margin: "12px 0", paddingTop: "12px" } },
       el("div", { class: "small muted", style: { marginBottom: 8 } }, "Or jump to:"),

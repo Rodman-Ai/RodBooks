@@ -254,6 +254,51 @@ export function generateProposals() {
     });
   }
 
+  // 12. Exclusivity overlap (#64): warn if two brands' exclusivity windows overlap.
+  const exclusiveDeals = deals.filter((d) => d.exclusivityFrom && d.exclusivityTo);
+  const overlaps = [];
+  for (let i = 0; i < exclusiveDeals.length; i++) {
+    for (let j = i + 1; j < exclusiveDeals.length; j++) {
+      const a = exclusiveDeals[i], b = exclusiveDeals[j];
+      if (a.company === b.company) continue;
+      const aFrom = new Date(a.exclusivityFrom), aTo = new Date(a.exclusivityTo);
+      const bFrom = new Date(b.exclusivityFrom), bTo = new Date(b.exclusivityTo);
+      if (aFrom <= bTo && bFrom <= aTo) {
+        overlaps.push({ a: a.company, b: b.company, from: a.exclusivityFrom > b.exclusivityFrom ? a.exclusivityFrom : b.exclusivityFrom, to: a.exclusivityTo < b.exclusivityTo ? a.exclusivityTo : b.exclusivityTo });
+      }
+    }
+  }
+  if (overlaps.length) {
+    proposals.push({
+      id: "exclusivity-overlap",
+      title: `Exclusivity windows overlap: ${overlaps.length} pair${overlaps.length === 1 ? "" : "s"}`,
+      description: "Two or more brands have overlapping exclusivity windows. Confirm you're not violating either contract.",
+      severity: "high",
+      count: overlaps.length,
+      preview: overlaps.slice(0, 5).map((o) => `${o.a} ⨯ ${o.b} from ${o.from} to ${o.to}`),
+      apply() { setRule("exclusivity-overlap-ack", { enabled: true, ackedAt: Date.now() }); },
+    });
+  }
+
+  // 13. Usage rights expiring soon (#65): within 30 days.
+  const expiringSoon = deals.filter((d) => {
+    if (!d.usageRightsUntil) return false;
+    const until = new Date(d.usageRightsUntil);
+    const days = (until.getTime() - todayMs) / 86400000;
+    return days >= 0 && days <= 30;
+  });
+  if (expiringSoon.length) {
+    proposals.push({
+      id: "usage-rights-expiring",
+      title: `${expiringSoon.length} usage-rights window${expiringSoon.length === 1 ? "" : "s"} expiring within 30 days`,
+      description: "Decide whether to extend (charge a renewal fee) or take the content down on the brand's side.",
+      severity: "medium",
+      count: expiringSoon.length,
+      preview: expiringSoon.slice(0, 6).map((d) => `${d.company}: ${d.usageRightsUntil}`),
+      apply() { setRule("usage-rights-ack", { enabled: true, ackedAt: Date.now() }); },
+    });
+  }
+
   // 11. Smart paid-date inference (#88): unpaid deals with invoice — suggest paidDate from next month-end.
   const inferred = deals.filter((d) => !d.paid && d.invoiceDate && d.invoiceNumber).slice(0, 0); // placeholder; real matching needs bank-statement context.
   // Skip surfacing if we have nothing concrete; future work hooks in matched bank rows.
