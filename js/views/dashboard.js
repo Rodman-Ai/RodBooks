@@ -308,7 +308,9 @@ export default function dashboard() {
     // ---- Goal tracker ----
     const goalCard = goalProgress(allDeals, settings);
     // ---- 90-day forecast ----
-    const forecastCard = forecastProgress(allDeals);
+    const forecastCard = forecastProgress(allDeals, allBills);
+    // ---- Cash-runway alert (#29) ----
+    const runwayCard = cashRunwayCard(allDeals, allBills, settings);
     // ---- Cash runway (#29) ----
     const runwayCard = cashRunwayCard(allDeals, allBills, settings);
     // ---- Concentration over time (#7) ----
@@ -323,6 +325,7 @@ export default function dashboard() {
       kpis,
       propStrip,
       el("div", { class: "dash-grid" }, goalCard, forecastCard),
+      runwayCard ? runwayCard : null,
       el("div", { class: "dash-grid" }, runwayCard, concentrationCard),
       trendCard,
       el("div", { class: "dash-grid" }, funnelCard, brandCard),
@@ -514,21 +517,29 @@ function progressRow(label, value, goal) {
   );
 }
 
-function forecastProgress(allDeals) {
-  // Simple: sum scheduled (unpaid) deals with serviceDate or postDate in the next 90 days,
-  // plus 90-day rolling avg paid run-rate.
+function forecastProgress(allDeals, allBills) {
+  // Booked (scheduled) deals in the next 12 months, plus 6-month run-rate × 12,
+  // plus monthly burn projection from recurring bills.
   const now = Date.now();
-  const horizon = 90 * 86400000;
-  const upcoming = allDeals.filter((d) => {
+  const horizon90 = 90 * 86400000;
+  const horizon365 = 365 * 86400000;
+  const upcoming90 = allDeals.filter((d) => {
     if (d.paid) return false;
     const ref = d.serviceDate || d.postDate || d.draftDue;
     if (!ref) return false;
     const ms = new Date(ref).getTime();
-    return ms >= now - 7 * 86400000 && ms <= now + horizon;
+    return ms >= now - 7 * 86400000 && ms <= now + horizon90;
   });
-  const upcomingTotal = upcoming.reduce((s, d) => s + netFee(d), 0);
+  const upcoming365 = allDeals.filter((d) => {
+    if (d.paid) return false;
+    const ref = d.serviceDate || d.postDate || d.draftDue;
+    if (!ref) return false;
+    const ms = new Date(ref).getTime();
+    return ms >= now - 7 * 86400000 && ms <= now + horizon365;
+  });
+  const upcoming90Total = upcoming90.reduce((s, d) => s + netFee(d), 0);
+  const upcoming365Total = upcoming365.reduce((s, d) => s + netFee(d), 0);
 
-  // Run-rate: average per-month over last 6 months of paid net.
   const months = [];
   for (let i = 5; i >= 0; i--) {
     const dt = new Date(); dt.setMonth(dt.getMonth() - i, 1);
@@ -537,28 +548,48 @@ function forecastProgress(allDeals) {
   const monthly = months.map((m) => allDeals.filter((d) => (d.paidDate || "").slice(0, 7) === m).reduce((s, d) => s + (d.paidAmount || netFee(d)), 0));
   const avg = monthly.reduce((a, b) => a + b, 0) / Math.max(1, monthly.length);
   const run90 = avg * 3;
+  const run365 = avg * 12;
+
+  // Monthly burn from recurring bills (#14)
+  const recurring = (allBills || []).filter((b) => b.recurring === "monthly");
+  const monthlyBurn = recurring.length
+    ? Object.values(recurring.reduce((acc, b) => { acc[b.vendor] = +b.amount || 0; return acc; }, {})).reduce((a, b) => a + b, 0)
+    : 0;
+  const projectedBurn90 = monthlyBurn * 3;
+  const projectedBurn365 = monthlyBurn * 12;
 
   return el("div", { class: "card" },
-    el("h3", {}, "90-day forecast"),
+    el("h3", {}, "Forecast"),
     el("div", { class: "row", style: { gap: "16px", flexWrap: "wrap" } },
       el("div", {},
-        el("div", { class: "kpi-sub" }, "Booked (scheduled)"),
-        el("div", { class: "kpi-value" }, fmtMoney(upcomingTotal)),
-        el("div", { class: "small muted" }, `${upcoming.length} upcoming deals`),
+        el("div", { class: "kpi-sub" }, "Booked · 90 days"),
+        el("div", { class: "kpi-value" }, fmtMoney(upcoming90Total)),
+        el("div", { class: "small muted" }, `${upcoming90.length} upcoming`),
       ),
       el("div", {},
-        el("div", { class: "kpi-sub" }, "Run-rate (6mo avg)"),
-        el("div", { class: "kpi-value" }, fmtMoney(run90)),
-        el("div", { class: "small muted" }, `${fmtMoney(avg)}/mo`),
+        el("div", { class: "kpi-sub" }, "Booked · 12 months"),
+        el("div", { class: "kpi-value" }, fmtMoney(upcoming365Total)),
+        el("div", { class: "small muted" }, `${upcoming365.length} upcoming`),
       ),
       el("div", {},
-        el("div", { class: "kpi-sub" }, "Combined estimate"),
-        el("div", { class: "kpi-value", style: { color: "var(--accent)" } }, fmtMoney(upcomingTotal + run90)),
-        el("div", { class: "small muted" }, "Booked + run-rate"),
+        el("div", { class: "kpi-sub" }, "Run-rate × 12"),
+        el("div", { class: "kpi-value" }, fmtMoney(run365)),
+        el("div", { class: "small muted" }, `${fmtMoney(avg)}/mo · 6-mo avg`),
+      ),
+      el("div", {},
+        el("div", { class: "kpi-sub" }, "Burn · 12 months"),
+        el("div", { class: "kpi-value", style: { color: monthlyBurn > 0 ? "var(--danger)" : null } }, "−" + fmtMoney(projectedBurn365)),
+        el("div", { class: "small muted" }, `${fmtMoney(monthlyBurn)}/mo recurring`),
+      ),
+      el("div", {},
+        el("div", { class: "kpi-sub" }, "Net 12-mo estimate"),
+        el("div", { class: "kpi-value", style: { color: (upcoming365Total + run365 - projectedBurn365) >= 0 ? "var(--accent)" : "var(--danger)" } }, fmtMoney(upcoming365Total + run365 - projectedBurn365)),
+        el("div", { class: "small muted" }, "Booked + run-rate − burn"),
       ),
     ),
   );
 }
+
 
 function cashRunwayCard(allDeals, allBills, settings) {
   // Trailing-3-month avg burn (paid bills) and trailing-3-month avg cash collected.

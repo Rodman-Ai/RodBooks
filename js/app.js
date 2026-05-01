@@ -26,6 +26,7 @@ import templatesView from "./views/templates.js";
 import bankingView from "./views/banking.js";
 import incomeView from "./views/income.js";
 import customReportView from "./views/custom-report.js";
+import bookingView from "./views/booking.js";
 import { runScheduler } from "./scheduler.js";
 import contractsView from "./views/contracts.js";
 import { runScheduler } from "./scheduler.js";
@@ -87,6 +88,34 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   });
 }
+
+// Drain offline capture queue when back online (#91).
+async function drainOfflineQueue() {
+  try {
+    const { drain, pendingCount } = await import("./offlineQueue.js");
+    if (!(await pendingCount())) return;
+    const { ocrImage, extractReceiptFields } = await import("./ocr.js");
+    const { Bills } = await import("./store.js");
+    const { toast } = await import("./ui.js");
+    const processed = await drain(async (item) => {
+      if (item.kind !== "receipt" || !item.dataUrl) return;
+      const blob = await (await fetch(item.dataUrl)).blob();
+      const text = await ocrImage(blob).catch(() => "");
+      const f = extractReceiptFields(text);
+      Bills.save({
+        vendor: item.vendorHint || f.vendor || "Captured receipt",
+        amount: f.amount || 0,
+        date: f.date || new Date().toISOString().slice(0, 10),
+        category: "Other",
+        receiptUrl: item.dataUrl,
+        notes: "Auto-imported from offline queue",
+      });
+    });
+    if (processed > 0) toast(`Synced ${processed} offline receipt${processed === 1 ? "" : "s"}`);
+  } catch (e) { /* swallow */ }
+}
+window.addEventListener("online", drainOfflineQueue);
+if (navigator.onLine) drainOfflineQueue();
 let _deferredInstall = null;
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
@@ -129,6 +158,7 @@ register("/templates", () => templatesView());
 register("/contracts", () => contractsView());
 register("/banking", () => bankingView());
 register("/income", () => incomeView());
+register("/booking", () => bookingView());
 register("/settings", () => settingsView());
 
 const TITLES = {
@@ -149,6 +179,8 @@ const TITLES = {
   "/contracts": "Contract scanner",
   "/banking": "Banking",
   "/income": "Other income",
+  "/booking": "Booking",
+  "/reports/custom": "Custom report",
   "/settings": "Settings",
 };
 
@@ -211,6 +243,46 @@ document.addEventListener("click", (e) => {
 
 // Quick add
 document.getElementById("quickAddBtn").addEventListener("click", () => openQuickAdd());
+
+// Multi-entity profile switcher (#69)
+import("./profiles.js").then(({ listProfiles, getActiveProfileId, setActiveProfile, createProfile }) => {
+  const sel = document.getElementById("profileSwitcher");
+  if (!sel) return;
+  const refresh = () => {
+    sel.innerHTML = "";
+    const list = listProfiles();
+    const active = getActiveProfileId();
+    list.forEach((p) => {
+      const o = document.createElement("option");
+      o.value = p.id; o.textContent = p.name;
+      if (p.id === active) o.selected = true;
+      sel.append(o);
+    });
+    const newOpt = document.createElement("option");
+    newOpt.value = "__new"; newOpt.textContent = "+ New profile…";
+    sel.append(newOpt);
+    const manageOpt = document.createElement("option");
+    manageOpt.value = "__manage"; manageOpt.textContent = "Manage profiles…";
+    sel.append(manageOpt);
+  };
+  sel.addEventListener("change", () => {
+    if (sel.value === "__new") {
+      const name = prompt("Name the new profile (e.g. LLC, Personal)");
+      if (name) {
+        const p = createProfile(name);
+        setActiveProfile(p.id);
+        location.reload();
+      } else refresh();
+    } else if (sel.value === "__manage") {
+      go("/settings");
+      refresh();
+    } else {
+      setActiveProfile(sel.value);
+      location.reload();
+    }
+  });
+  refresh();
+});
 // Topbar buttons
 document.getElementById("searchBtn")?.addEventListener("click", () => openPalette());
 document.getElementById("helpBtn")?.addEventListener("click", () => openHelp());

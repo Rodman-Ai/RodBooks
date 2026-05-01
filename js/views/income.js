@@ -22,9 +22,10 @@ export default function incomeView() {
       el("div", { class: "row", style: { marginBottom: 12 } },
         el("button", { class: `chip ${tab === "tips" ? "active" : ""}`, onclick: () => { tab = "tips"; render(); } }, "Platform / tips"),
         el("button", { class: `chip ${tab === "affiliate" ? "active" : ""}`, onclick: () => { tab = "affiliate"; render(); } }, "Affiliate"),
+        el("button", { class: `chip ${tab === "linkgen" ? "active" : ""}`, onclick: () => { tab = "linkgen"; render(); } }, "UTM link generator"),
         el("button", { class: `chip ${tab === "import" ? "active" : ""}`, onclick: () => { tab = "import"; render(); } }, "Import CSV"),
       ),
-      tab === "tips" ? renderTips() : tab === "affiliate" ? renderAffiliates() : renderImport(),
+      tab === "tips" ? renderTips() : tab === "affiliate" ? renderAffiliates() : tab === "linkgen" ? renderLinkGen() : renderImport(),
     );
   };
 
@@ -112,6 +113,64 @@ export default function incomeView() {
               );
             }),
           ),
+    );
+  }
+
+  const f = (label, control, full) => el("div", { class: `field ${full ? "full" : ""}` }, el("label", {}, label), control);
+
+  function renderLinkGen() {
+    const target = el("input", { class: "input", placeholder: "https://brand.com/landing" });
+    const source = el("input", { class: "input", placeholder: "youtube · twitter · newsletter" });
+    const medium = el("input", { class: "input", placeholder: "video · post · email" });
+    const campaign = el("input", { class: "input", placeholder: "summer-launch" });
+    const term = el("input", { class: "input", placeholder: "creator-pricing (optional)" });
+    const content = el("input", { class: "input", placeholder: "v1 · variant-a (optional)" });
+    const code = el("input", { class: "input", placeholder: "Affiliate code (e.g. RODMAN10)" });
+    const out = el("input", { class: "input", readonly: "", style: { fontFamily: "ui-monospace, Menlo, monospace", fontSize: "12px" } });
+    const note = el("div", { class: "small muted" });
+
+    const refresh = () => {
+      const url = (target.value || "").trim();
+      if (!url) { out.value = ""; note.textContent = "Paste a target URL to build a tagged link."; return; }
+      let u;
+      try { u = new URL(url); } catch { out.value = ""; note.textContent = "Invalid URL."; return; }
+      const setIf = (k, v) => { if (v) u.searchParams.set(k, v); };
+      setIf("utm_source", source.value);
+      setIf("utm_medium", medium.value);
+      setIf("utm_campaign", campaign.value);
+      setIf("utm_term", term.value);
+      setIf("utm_content", content.value);
+      setIf("ref", code.value);
+      out.value = u.toString();
+      note.textContent = "Ready — click Copy to grab the tagged link.";
+    };
+    [target, source, medium, campaign, term, content, code].forEach((i) => i.addEventListener("input", refresh));
+
+    return el("div", { class: "card" },
+      el("h3", {}, "UTM / affiliate link builder"),
+      el("div", { class: "small muted", style: { marginBottom: 8 } }, "Glue UTM tags + your affiliate code to any target URL. Track click-through manually in the Affiliate tab."),
+      el("div", { class: "form-grid" },
+        f("Target URL", target, true),
+        f("utm_source", source),
+        f("utm_medium", medium),
+        f("utm_campaign", campaign, true),
+        f("utm_term", term),
+        f("utm_content", content),
+        f("Affiliate code (ref=)", code, true),
+      ),
+      el("div", { class: "field full" }, el("label", {}, "Tagged URL"), out, note),
+      el("div", { class: "row", style: { marginTop: 8 } },
+        el("button", { class: "btn primary", onclick: () => {
+          if (!out.value) return;
+          navigator.clipboard.writeText(out.value).then(() => toast("Copied"), () => toast("Copy failed", "warn"));
+        } }, "Copy URL"),
+        el("button", { class: "btn", onclick: async () => {
+          if (!out.value) return;
+          // Generate QR via tiny inline PNG: rely on Google Charts deprecated? We don't want network calls.
+          // Instead just open in a new tab so the user can screenshot or share.
+          window.open(out.value, "_blank");
+        } }, "Open"),
+      ),
     );
   }
 

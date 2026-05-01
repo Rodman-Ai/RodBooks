@@ -36,6 +36,7 @@
           <a href="#/income" data-route="income"><span class="i">♡</span><span>Other income</span></a>
           <a href="#/mileage" data-route="mileage"><span class="i">↗</span><span>Mileage</span></a>
           <a href="#/contacts" data-route="contacts"><span class="i">☺</span><span>Contacts</span></a>
+          <a href="#/booking" data-route="booking"><span class="i">▥</span><span>Booking</span></a>
           <a href="#/automations" data-route="automations"><span class="i">⚡</span><span>Automations</span></a>
           <a href="#/templates" data-route="templates"><span class="i">≡</span><span>Templates</span></a>
           <a href="#/contracts" data-route="contracts"><span class="i">⚠</span><span>Contract scanner</span></a>
@@ -53,6 +54,7 @@
         <button class="icon-btn" id="menuBtn" aria-label="Menu">☰</button>
         <div class="topbar-title" id="pageTitle">Dashboard</div>
         <div class="topbar-actions">
+          <select class="select" id="profileSwitcher" aria-label="Active profile" title="Switch profile" style="height:32px;padding:2px 8px;font-size:12px;width:auto;min-width:0"></select>
           <button class="icon-btn" id="searchBtn" aria-label="Search (⌘K)" title="Search & commands (⌘K)">⌕</button>
           <button class="icon-btn" id="densityBtn" aria-label="Toggle density" title="Toggle density">☰☰</button>
           <button class="icon-btn" id="helpBtn" aria-label="Keyboard shortcuts (?)" title="Keyboard shortcuts (?)">?</button>
@@ -64,10 +66,17 @@
 
       <nav class="tabbar" aria-label="Sections">
         <a href="#/" data-route="dashboard"><span class="i">▦</span><span>Home</span></a>
+        <a href="#/deals" data-route="deals"><span class="i">★</span><span>Deals</span></a>
         <a href="#/pipeline" data-route="pipeline"><span class="i">▤</span><span>Pipeline</span></a>
         <a href="#/timeline" data-route="timeline"><span class="i">◷</span><span>Timeline</span></a>
+        <a href="#/booking" data-route="booking"><span class="i">▥</span><span>Booking</span></a>
+        <a href="#/invoices" data-route="invoices"><span class="i">⎈</span><span>Invoices</span></a>
+        <a href="#/bills" data-route="bills"><span class="i">↧</span><span>Bills</span></a>
+        <a href="#/banking" data-route="banking"><span class="i">$</span><span>Banking</span></a>
         <a href="#/automations" data-route="automations"><span class="i">⚡</span><span>Auto</span></a>
         <a href="#/reports" data-route="reports"><span class="i">∑</span><span>Reports</span></a>
+        <a href="#/tax" data-route="tax"><span class="i">§</span><span>Tax</span></a>
+        <a href="#/settings" data-route="settings"><span class="i">⚙</span><span>Settings</span></a>
       </nav>
     </div>
 

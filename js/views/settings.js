@@ -3,6 +3,7 @@ import { Settings, exportJSON, importJSON, resetAll, loadSampleData, downloadFil
 import { confirmDialog, toast, openModal } from "../ui.js";
 import { setTheme } from "../theme.js";
 import { setPasscode, isLockEnabled, lock as lockNow } from "../lock.js";
+import { listProfiles, getActiveProfileId, createProfile, renameProfile, deleteProfile, setActiveProfile } from "../profiles.js";
 
 export default function settings() {
   const node = el("div", {});
@@ -176,6 +177,8 @@ export default function settings() {
         ),
       ),
 
+      profileSection(render),
+
       el("div", { class: "card" },
         el("h3", {}, "Encrypted-at-rest vault"),
         el("div", { class: "small muted", style: { marginBottom: 8 } },
@@ -262,6 +265,39 @@ function renderSnapshotList() {
         if (ok) { Snapshots.remove(s.id); toast("Deleted"); }
       } }, "Delete"),
     )),
+  );
+}
+
+function profileSection(rerender) {
+  const list = listProfiles();
+  const active = getActiveProfileId();
+  return el("div", { class: "card" },
+    el("h3", {}, "Profiles (entities)"),
+    el("div", { class: "small muted", style: { marginBottom: 8 } }, "Run multiple books in the same browser — useful for separating your LLC from personal income, or one creator account from another. Each profile has its own deals, bills, contacts."),
+    el("table", { class: "data" },
+      el("tbody", {}, ...list.map((p) => el("tr", {},
+        el("td", {}, p.name + (p.id === active ? " · active" : "")),
+        el("td", {},
+          el("div", { class: "row" },
+            p.id !== active && el("button", { class: "btn sm", onclick: () => { setActiveProfile(p.id); location.reload(); } }, "Switch"),
+            el("button", { class: "btn sm", onclick: () => {
+              const n = prompt("Rename profile", p.name);
+              if (n) { renameProfile(p.id, n); toast("Renamed"); rerender && rerender(); }
+            } }, "Rename"),
+            list.length > 1 && p.id !== active && el("button", { class: "btn sm danger", onclick: async () => {
+              const ok = await confirmDialog({ title: `Delete profile "${p.name}"?`, body: "All deals, bills, and contacts in that profile will be erased.", danger: true, confirmLabel: "Delete" });
+              if (ok) { try { deleteProfile(p.id); toast("Deleted"); rerender && rerender(); } catch (e) { toast(e.message, "warn"); } }
+            } }, "Delete"),
+          ),
+        ),
+      ))),
+    ),
+    el("div", { style: { marginTop: 12 } },
+      el("button", { class: "btn primary", onclick: () => {
+        const name = prompt("New profile name");
+        if (name) { const p = createProfile(name); setActiveProfile(p.id); location.reload(); }
+      } }, "+ New profile"),
+    ),
   );
 }
 

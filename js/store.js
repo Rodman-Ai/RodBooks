@@ -1,7 +1,10 @@
 // LocalStorage-backed store. Single source of truth.
 // All data stays on-device. Export/Import via JSON or CSV.
 
-const KEY = "rodbooks:v1";
+import { dataKeyFor, getActiveProfileId } from "./profiles.js";
+
+// Active profile's localStorage key. Re-resolved on each access via KEY().
+const KEY = () => dataKeyFor(getActiveProfileId());
 const SCHEMA_VERSION = 1;
 
 const defaults = () => ({
@@ -65,7 +68,7 @@ export function disableVaultEncryption() { _encrypted = false; _encryptCb = null
 
 function read() {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(KEY());
     if (!raw) return defaults();
     if (raw.startsWith("enc:v1:")) {
       // Locked — we'll wait for unlockAndLoad to set the cache.
@@ -80,12 +83,12 @@ function read() {
 }
 
 export function rawIsEncrypted() {
-  const raw = localStorage.getItem(KEY);
+  const raw = localStorage.getItem(KEY());
   return typeof raw === "string" && raw.startsWith("enc:v1:");
 }
 
 export async function unlockVaultAndLoad(passphrase) {
-  const raw = localStorage.getItem(KEY);
+  const raw = localStorage.getItem(KEY());
   if (!raw || !raw.startsWith("enc:v1:")) throw new Error("Not encrypted");
   const { unlock } = await import("./cryptoVault.js");
   const plaintext = await unlock(passphrase, raw);
@@ -103,7 +106,7 @@ export async function enableEncryptionWithPassphrase(passphrase) {
   const { enableWithPassphrase } = await import("./cryptoVault.js");
   const plaintext = JSON.stringify(cache);
   const blob = await enableWithPassphrase(passphrase, plaintext);
-  localStorage.setItem(KEY, blob);
+  localStorage.setItem(KEY(), blob);
   _encrypted = true;
   const { encryptCurrent } = await import("./cryptoVault.js");
   _encryptCb = encryptCurrent;
@@ -115,7 +118,7 @@ export async function disableEncryption() {
   const { disable } = await import("./cryptoVault.js");
   disable();
   // Re-write as plaintext.
-  localStorage.setItem(KEY, JSON.stringify(cache));
+  localStorage.setItem(KEY(), JSON.stringify(cache));
 }
 
 function migrate(data) {
@@ -154,9 +157,9 @@ function write() {
   const plain = JSON.stringify(cache);
   if (_encrypted && _encryptCb) {
     // Encrypt asynchronously; UI is already updated from in-memory cache.
-    _encryptCb(plain).then((blob) => localStorage.setItem(KEY, blob)).catch((e) => console.warn("encrypt write failed:", e));
+    _encryptCb(plain).then((blob) => localStorage.setItem(KEY(), blob)).catch((e) => console.warn("encrypt write failed:", e));
   } else {
-    localStorage.setItem(KEY, plain);
+    localStorage.setItem(KEY(), plain);
   }
   subscribers.forEach((fn) => {
     try { fn(cache); } catch (e) { console.error(e); }
@@ -167,6 +170,9 @@ export function getState() {
   if (!cache) cache = read();
   return cache;
 }
+
+// Reset the cache (e.g., when switching profiles).
+export function resetCache() { cache = null; }
 
 export function subscribe(fn) {
   subscribers.add(fn);
