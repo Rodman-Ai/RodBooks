@@ -1,5 +1,5 @@
 import { el, fmtMoney, fmtDate, fmtDateShort, netFee, dealStatus, serviceMeta, escHtml, debounce, todayISO, parseDate, parseSearchOperators, dealStageAge, dueDate, daysPastDue, lateFee } from "../utils.js";
-import { Deals, Contacts, Settings, subscribe, downloadFile, toCSV } from "../store.js";
+import { Deals, Contacts, Settings, DealTemplates, subscribe, downloadFile, toCSV } from "../store.js";
 import { go, getQuery, setQuery } from "../router.js";
 import { openDealForm } from "../forms.js";
 import { confirmDialog, toast } from "../ui.js";
@@ -350,6 +350,28 @@ export function dealDetail({ id }) {
             const { id, paid, paidDate, paidAmount, invoiceNumber, invoiceDate, invoiceUrl, transactionId, ...rest } = d;
             openDealForm({ ...rest, paid: false, paidDate: "", paidAmount: 0, invoiceNumber: "", invoiceDate: "", invoiceUrl: "", transactionId: "", serviceDate: todayISO(), notes: (d.notes || "") + (d.notes ? " · " : "") + "(repeat)" });
           } }, "Clone / repeat"),
+          el("button", { class: "btn", onclick: async () => {
+            const ok = await confirmDialog({
+              title: "Make this deal recurring?",
+              body: el("div", {},
+                el("div", {}, `A monthly template will be created for ${d.company} at ${fmtMoney(d.fee)}.`),
+                el("div", { class: "small muted", style: { marginTop: 6 } }, "Each load, the scheduler will materialize a fresh deal if a full cadence has passed."),
+              ),
+              confirmLabel: "Create template",
+            });
+            if (!ok) return;
+            DealTemplates.save({
+              name: `${d.company} retainer`,
+              contactId: d.contactId, company: d.company, svc: d.svc,
+              fee: d.fee, partnerFeePct: d.partnerFeePct || 0,
+              terms: d.terms || 30, deliverables: d.deliverables || [],
+              cadence: "monthly", dayOfMonth: +d.serviceDate?.slice(8) || 1,
+              invoiceTo: d.invoiceTo || "",
+              active: true, lastRunAt: Date.now(),
+              notes: "From " + (d.invoiceNumber || d.id),
+            });
+            toast("Recurring template created");
+          } }, "Make recurring"),
           !d.paid && el("button", {
             class: "btn primary",
             onclick: () => {

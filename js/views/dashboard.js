@@ -309,6 +309,12 @@ export default function dashboard() {
     const goalCard = goalProgress(allDeals, settings);
     // ---- 90-day forecast ----
     const forecastCard = forecastProgress(allDeals);
+    // ---- Cash runway (#29) ----
+    const runwayCard = cashRunwayCard(allDeals, allBills, settings);
+    // ---- Concentration over time (#7) ----
+    const concentrationCard = concentrationOverTimeCard(allDeals);
+    // ---- Service mix evolution (#73) ----
+    const svcEvoCard = serviceMixEvolutionCard(allDeals);
 
     // ---- Compose ----
     node.innerHTML = "";
@@ -317,13 +323,18 @@ export default function dashboard() {
       kpis,
       propStrip,
       el("div", { class: "dash-grid" }, goalCard, forecastCard),
+      el("div", { class: "dash-grid" }, runwayCard, concentrationCard),
       trendCard,
       el("div", { class: "dash-grid" }, funnelCard, brandCard),
       el("div", { class: "dash-grid" }, heatmapCard, svcCard),
+      svcEvoCard,
       el("div", { class: "dash-grid" }, brandTable, el("div", { class: "stack" }, biggestCard, cycleCard)),
     );
 
-    requestAnimationFrame(() => buildCharts(deals, bills, donutLabels, donutData, buckets));
+    requestAnimationFrame(() => {
+      buildCharts(deals, bills, donutLabels, donutData, buckets);
+      buildSvcEvolution(allDeals, charts);
+    });
   };
 
   function buildCharts(deals, bills, donutLabels, donutData, cycleBuckets) {
@@ -547,6 +558,140 @@ function forecastProgress(allDeals) {
       ),
     ),
   );
+}
+
+function cashRunwayCard(allDeals, allBills, settings) {
+  // Trailing-3-month avg burn (paid bills) and trailing-3-month avg cash collected.
+  const now = new Date();
+  const months = [];
+  for (let i = 2; i >= 0; i--) {
+    const dt = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push(dt.toISOString().slice(0, 7));
+  }
+  const burn = months.reduce((s, m) => s + allBills.filter((b) => (b.date || "").startsWith(m)).reduce((ss, b) => ss + (+b.amount || 0), 0), 0) / 3;
+  const inflow = months.reduce((s, m) => s + allDeals.filter((d) => (d.paidDate || "").startsWith(m)).reduce((ss, d) => ss + (+d.paidAmount || netFee(d)), 0), 0) / 3;
+  const netBurn = burn - inflow;
+  const cash = +settings.cashOnHand || 0;
+  const runwayMonths = netBurn > 0 ? cash / netBurn : Infinity;
+
+  let runwayLabel, cls;
+  if (cash <= 0) { runwayLabel = "Set cash balance"; cls = "gray"; }
+  else if (netBurn <= 0) { runwayLabel = "Cash flow positive ✓"; cls = "green"; }
+  else if (runwayMonths < 2) { runwayLabel = `${runwayMonths.toFixed(1)}mo runway · low`; cls = "red"; }
+  else if (runwayMonths < 6) { runwayLabel = `${runwayMonths.toFixed(1)}mo runway`; cls = "amber"; }
+  else { runwayLabel = `${runwayMonths.toFixed(1)}mo runway`; cls = "green"; }
+
+  return el("div", { class: "card" },
+    el("h3", {}, "Cash runway"),
+    el("div", { class: "row spread", style: { marginBottom: 6 } },
+      el("div", {},
+        el("div", { class: "kpi-sub" }, "Cash on hand"),
+        el("div", { class: "kpi-value" }, fmtMoney(cash)),
+      ),
+      el("span", { class: `pill ${cls}` }, runwayLabel),
+    ),
+    el("div", { class: "small muted", style: { marginTop: 4 } }, `Trailing-3 burn ${fmtMoney(burn)}/mo · inflow ${fmtMoney(inflow)}/mo · net ${fmtMoney(netBurn)}/mo`),
+    cash <= 0 ? el("div", { class: "small muted", style: { marginTop: 6 } }, "Settings → Cash on hand to enable runway alerts.") : null,
+  );
+}
+
+function concentrationOverTimeCard(allDeals) {
+  // Top-brand share by quarter for the last 8 quarters.
+  const now = new Date();
+  const quarters = [];
+  for (let i = 7; i >= 0; i--) {
+    const m = now.getMonth() - i * 3;
+    const d = new Date(now.getFullYear(), m, 1);
+    quarters.push({ year: d.getFullYear(), q: Math.floor(d.getMonth() / 3) });
+  }
+  const data = quarters.map((q) => {
+    const start = new Date(q.year, q.q * 3, 1).getTime();
+    const end = new Date(q.year, q.q * 3 + 3, 1).getTime();
+    const inQ = allDeals.filter((d) => {
+      const dt = d.serviceDate || d.paidDate || d.invoiceDate || "";
+      const ms = new Date(dt).getTime();
+      return ms >= start && ms < end;
+    });
+    const totals = {};
+    inQ.forEach((d) => { totals[d.company] = (totals[d.company] || 0) + netFee(d); });
+    const sum = Object.values(totals).reduce((a, b) => a + b, 0);
+    const top = Math.max(0, ...Object.values(totals));
+    return { label: `Q${q.q + 1} '${String(q.year).slice(-2)}`, share: sum ? Math.round(top / sum * 100) : 0 };
+  });
+
+  return el("div", { class: "card" },
+    el("h3", {}, "Top-brand concentration · 8 quarters"),
+    el("div", { class: "small muted", style: { marginBottom: 8 } }, "Share of revenue from your single biggest brand each quarter."),
+    el("div", { style: { display: "flex", alignItems: "flex-end", gap: "8px", height: "120px" } },
+      ...data.map((d) => {
+        const h = Math.max(2, d.share);
+        const cls = d.share >= 50 ? "var(--danger)" : d.share >= 30 ? "var(--warn)" : "var(--accent)";
+        return el("div", { style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" } },
+          el("div", { class: "small muted", style: { fontSize: "10px" } }, `${d.share}%`),
+          el("div", { style: { width: "100%", height: `${h}%`, background: cls, borderRadius: "4px 4px 0 0", minHeight: "2px" } }),
+          el("div", { class: "small muted", style: { fontSize: "10px" } }, d.label),
+        );
+      }),
+    ),
+  );
+}
+
+function serviceMixEvolutionCard(allDeals) {
+  // 12-month stacked area: count of deals per service type.
+  const now = new Date();
+  const months = [];
+  for (let i = 11; i >= 0; i--) {
+    const dt = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push(dt.toISOString().slice(0, 7));
+  }
+  const services = Array.from(new Set(allDeals.map((d) => d.svc).filter(Boolean)));
+  const palette = ["#22c55e", "#3b82f6", "#a78bfa", "#ec4899", "#f59e0b", "#14b8a6", "#ef4444", "#8b5cf6"];
+
+  return el("div", { class: "card" },
+    el("div", { class: "spread" },
+      el("h3", {}, "Service-mix evolution · 12 months"),
+      el("div", { class: "row small muted", style: { gap: "10px" } },
+        ...services.slice(0, 8).map((s, i) => el("span", {}, el("span", { style: { background: palette[i], display: "inline-block", width: "10px", height: "10px", borderRadius: "2px", marginRight: "4px" } }), serviceMeta(s).label)),
+      ),
+    ),
+    el("div", { class: "chart-wrap" }, el("canvas", { id: "ch-svcevo" })),
+  );
+}
+
+function buildSvcEvolution(allDeals, charts) {
+  if (!window.Chart) return;
+  const now = new Date();
+  const months = [];
+  for (let i = 11; i >= 0; i--) {
+    const dt = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push(dt.toISOString().slice(0, 7));
+  }
+  const services = Array.from(new Set(allDeals.map((d) => d.svc).filter(Boolean)));
+  const palette = ["#22c55e", "#3b82f6", "#a78bfa", "#ec4899", "#f59e0b", "#14b8a6", "#ef4444", "#8b5cf6"];
+  const datasets = services.slice(0, 8).map((svc, i) => ({
+    label: serviceMeta(svc).label,
+    data: months.map((m) => allDeals.filter((d) => d.svc === svc && monthKey(d.serviceDate || d.paidDate) === m).length),
+    backgroundColor: palette[i],
+    borderColor: palette[i],
+    fill: true,
+    tension: 0.3,
+    stack: "0",
+  }));
+  const ctx = document.getElementById("ch-svcevo");
+  if (!ctx) return;
+  const chart = new window.Chart(ctx, {
+    type: "line",
+    data: { labels: months.map(monthLabel), datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: "#232936" }, ticks: { color: "#8a93a6", maxRotation: 0, autoSkip: true } },
+        y: { stacked: true, grid: { color: "#232936" }, ticks: { color: "#8a93a6", precision: 0 } },
+      },
+    },
+  });
+  charts.push(chart);
 }
 
 function computeYoY(allDeals, allBills, filters) {

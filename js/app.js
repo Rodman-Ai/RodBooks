@@ -23,6 +23,8 @@ import mileageView from "./views/mileage.js";
 import activityView from "./views/activity.js";
 import taxView from "./views/tax.js";
 import templatesView from "./views/templates.js";
+import contractsView from "./views/contracts.js";
+import { runScheduler } from "./scheduler.js";
 
 // First-run: if there's no data at all, offer sample data automatically (once).
 (async function firstRun() {
@@ -41,6 +43,9 @@ applyTheme();
 applyDensity();
 if (isLockEnabled() && !isUnlocked()) showLockScreen();
 
+// Run recurring-deal scheduler on every load.
+try { runScheduler(); } catch (e) { console.warn("scheduler:", e); }
+
 // Routes
 register("/", () => dashboard());
 register("/dashboard", () => dashboard());
@@ -58,6 +63,7 @@ register("/activity", () => activityView());
 register("/reports", () => reports());
 register("/tax", () => taxView());
 register("/templates", () => templatesView());
+register("/contracts", () => contractsView());
 register("/settings", () => settingsView());
 
 const TITLES = {
@@ -75,6 +81,7 @@ const TITLES = {
   "/reports": "Reports",
   "/tax": "Tax",
   "/templates": "Templates",
+  "/contracts": "Contract scanner",
   "/settings": "Settings",
 };
 

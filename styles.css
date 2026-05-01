@@ -545,6 +545,23 @@ table.data .truncate { max-width: 220px; overflow: hidden; text-overflow: ellips
   color: var(--muted); max-height: 140px; overflow: hidden;
 }
 
+/* Tiered line items + portfolio rows */
+.line-row {
+  display: grid; gap: 6px;
+  grid-template-columns: 2fr 1fr auto;
+  margin-bottom: 4px;
+}
+.portfolio-row {
+  display: grid; gap: 6px;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  margin-bottom: 4px;
+}
+
+/* Risk highlights in contract scanner */
+mark.risk-red { background: rgba(239,68,68,.25); color: #f47272; padding: 1px 2px; border-radius: 3px; }
+mark.risk-amber { background: rgba(245,158,11,.25); color: #f5b34b; padding: 1px 2px; border-radius: 3px; }
+mark.risk-blue { background: rgba(59,130,246,.20); color: #6aa6ff; padding: 1px 2px; border-radius: 3px; }
+
 /* Lock screen */
 #lock-screen {
   position: fixed; inset: 0; background: var(--bg);

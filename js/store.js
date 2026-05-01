@@ -24,6 +24,7 @@ const defaults = () => ({
     stateRate: 0.05, // approx state effective rate
     defaultTerms: 30, // net days
     lateFeePct: 0, // 0 = off; e.g. 1.5 for 1.5% / month
+    cashOnHand: 0, // manual current cash balance (for runway calc)
   },
   deals: [],
   bills: [],
@@ -36,6 +37,8 @@ const defaults = () => ({
   contractTemplates: [], // { id, name, body, kind }
   outreachTemplates: [], // { id, name, subject, body, kind }
   vendorRules: [], // { id, match, category } — rule for auto-categorize
+  dealTemplates: [], // { id, name, contactId, company, svc, fee, partnerFeePct, terms, deliverables, cadence, dayOfMonth, lastRunAt, active }
+  agents: [], // { id, name, email, defaultPct } — talent agents/managers
 });
 
 let cache = null;
@@ -71,6 +74,8 @@ function migrate(data) {
     contractTemplates: data.contractTemplates || [],
     outreachTemplates: data.outreachTemplates || [],
     vendorRules: data.vendorRules || [],
+    dealTemplates: data.dealTemplates || [],
+    agents: data.agents || [],
   };
 }
 
@@ -201,6 +206,20 @@ export const OutreachTemplates = {
   get: (id) => getState().outreachTemplates.find((x) => x.id === id),
   save: (x) => upsertCollection("outreachTemplates", x),
   remove: (id) => removeFromCollection("outreachTemplates", id),
+};
+
+export const DealTemplates = {
+  all: () => getState().dealTemplates,
+  get: (id) => getState().dealTemplates.find((x) => x.id === id),
+  save: (x) => upsertCollection("dealTemplates", x),
+  remove: (id) => removeFromCollection("dealTemplates", id),
+};
+
+export const Agents = {
+  all: () => getState().agents,
+  get: (id) => getState().agents.find((x) => x.id === id),
+  save: (x) => upsertCollection("agents", x),
+  remove: (id) => removeFromCollection("agents", id),
 };
 
 export const VendorRules = {

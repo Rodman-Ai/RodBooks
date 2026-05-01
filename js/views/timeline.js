@@ -13,6 +13,7 @@ const STAGE_META = {
   invoiceDate: { label: "Invoice", cls: "teal" },
   paidDate: { label: "Paid", cls: "green" },
 };
+const DELIVERABLE_META = { label: "Deliverable", cls: "pink" };
 
 export default function timelineView() {
   const node = el("div", {});
@@ -56,6 +57,7 @@ export default function timelineView() {
     node.append(el("div", { class: "row", style: { marginTop: "12px", flexWrap: "wrap", gap: "8px" } },
       ...Object.entries(STAGE_META).map(([k, m]) =>
         el("span", { class: `pill ${m.cls}` }, m.label)),
+      el("span", { class: `pill ${DELIVERABLE_META.cls}` }, DELIVERABLE_META.label),
     ));
   };
 
@@ -72,13 +74,19 @@ export default function timelineView() {
 
     // Bucket events by date string
     const byDate = {};
+    const ymKey = `${y}-${String(m + 1).padStart(2, "0")}`;
     for (const d of all) {
       for (const stage of Object.keys(STAGE_META)) {
         const ds = d[stage];
         if (!ds) continue;
-        if (ds.slice(0, 7) !== `${y}-${String(m + 1).padStart(2, "0")}`) continue;
+        if (ds.slice(0, 7) !== ymKey) continue;
         (byDate[ds] = byDate[ds] || []).push({ deal: d, stage });
       }
+      // Content-calendar overlay (#67): each deliverable due-date becomes its own event.
+      (d.deliverables || []).forEach((dl) => {
+        if (!dl.due || dl.due.slice(0, 7) !== ymKey) return;
+        (byDate[dl.due] = byDate[dl.due] || []).push({ deal: d, stage: "deliverable", deliverable: dl });
+      });
     }
 
     const wrap = el("div", { class: "card", style: { padding: "8px" } });
@@ -102,14 +110,15 @@ export default function timelineView() {
       const isToday = today.toISOString().slice(0, 10) === ds;
       const cell = el("div", { style: { background: "var(--bg-1)", padding: "6px", minHeight: "92px", display: "flex", flexDirection: "column", gap: "3px" } },
         el("div", { style: { fontSize: "11px", color: isToday ? "var(--accent)" : "var(--muted)", fontWeight: isToday ? 700 : 500 } }, String(day)),
-        ...events.slice(0, 4).map(({ deal, stage }) => {
-          const meta = STAGE_META[stage];
+        ...events.slice(0, 4).map(({ deal, stage, deliverable }) => {
+          const meta = stage === "deliverable" ? DELIVERABLE_META : STAGE_META[stage];
+          const lbl = stage === "deliverable" ? `${deal.company} · ${deliverable.label || "deliverable"}` : deal.company;
           return el("div", {
             class: `pill ${meta.cls}`,
-            title: `${deal.company} · ${meta.label}`,
+            title: `${deal.company} · ${stage === "deliverable" ? (deliverable.label || "Deliverable") : meta.label}`,
             onclick: (e) => { e.stopPropagation(); go(`/deals/${deal.id}`); },
             style: { cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "10px" },
-          }, deal.company);
+          }, lbl);
         }),
         events.length > 4 && el("div", { class: "small muted" }, `+${events.length - 4} more`),
       );

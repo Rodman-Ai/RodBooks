@@ -23,6 +23,10 @@ export default function settings() {
     const monthlyGoal = inp(s.monthlyGoal || "", "5000", "number");
     const annualGoal = inp(s.annualGoal || "", "120000", "number");
     const mileageRate = inp(s.mileageRate ?? 0.67, "0.67", "number");
+    const stateRate = inp(Math.round((s.stateRate || 0.05) * 100), "5", "number");
+    const cashOnHand = inp(s.cashOnHand || "", "10000", "number");
+    const lateFeePct = inp(s.lateFeePct || "", "1.5", "number");
+    const defaultTerms = inp(s.defaultTerms || 30, "30", "number");
 
     const save = () => {
       Settings.update({
@@ -37,6 +41,10 @@ export default function settings() {
         monthlyGoal: +monthlyGoal.value || 0,
         annualGoal: +annualGoal.value || 0,
         mileageRate: +mileageRate.value || 0.67,
+        stateRate: (+stateRate.value || 5) / 100,
+        cashOnHand: +cashOnHand.value || 0,
+        lateFeePct: +lateFeePct.value || 0,
+        defaultTerms: +defaultTerms.value || 30,
       });
       toast("Settings saved");
     };
@@ -109,6 +117,16 @@ export default function settings() {
         el("div", { class: "form-grid" },
           field("Monthly revenue goal ($)", monthlyGoal),
           field("Annual revenue goal ($)", annualGoal),
+        ),
+      ),
+
+      el("div", { class: "card" },
+        el("h3", {}, "Cash & terms"),
+        el("div", { class: "form-grid" },
+          field("Cash on hand ($)", cashOnHand),
+          field("Default payment terms (net days)", defaultTerms),
+          field("Late-fee % per month", lateFeePct),
+          field("State income-tax effective rate %", stateRate),
         ),
       ),
 
