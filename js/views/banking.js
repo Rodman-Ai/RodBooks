@@ -357,14 +357,68 @@ function openRuleForm() {
 }
 
 function openImportWizard() {
-  const file = el("input", { type: "file", accept: ".csv,text/csv" });
-  file.addEventListener("change", () => {
+  const file = el("input", { type: "file", accept: ".csv,.ofx,.qfx,text/csv,application/x-ofx" });
+  file.addEventListener("change", async () => {
     const f = file.files?.[0]; if (!f) return;
     const r = new FileReader();
-    r.onload = () => importWizardStep2(String(r.result || ""), f.name);
+    r.onload = async () => {
+      const text = String(r.result || "");
+      // OFX/QFX are SGML/XML — detect by header or root tag.
+      if (/OFXHEADER|<OFX>/i.test(text) || /\.(ofx|qfx)$/i.test(f.name)) {
+        const { parseOfx } = await import("../ofx.js");
+        const { transactions } = parseOfx(text);
+        if (!transactions.length) { toast("No transactions found in OFX/QFX", "warn"); return; }
+        await importOfxStep2(transactions, f.name);
+      } else {
+        importWizardStep2(text, f.name);
+      }
+    };
     r.readAsText(f);
   });
   file.click();
+}
+
+async function importOfxStep2(transactions, filename) {
+  const accountSel = el("select", { class: "select" });
+  accountSel.append(el("option", { value: "__new" }, "+ New account from filename…"));
+  Accounts.all().forEach((a) => accountSel.append(el("option", { value: a.id }, a.name)));
+  if (Accounts.all()[0]) accountSel.value = Accounts.all()[0].id;
+  const previewLines = transactions.slice(0, 4).map((t) => `${t.date}  ${t.vendor.slice(0, 40).padEnd(40)}  ${t.type === "credit" ? "+" : "-"}$${t.amount.toFixed(2)}`).join("\n");
+  const body = el("div", { class: "stack" },
+    el("div", { class: "small muted" }, `${transactions.length} transactions in ${filename}`),
+    el("div", { class: "field" }, el("label", {}, "Account"), accountSel),
+    el("pre", { style: { background: "var(--bg-2)", padding: "8px", borderRadius: "6px", fontSize: "11px", whiteSpace: "pre-wrap" } }, previewLines),
+  );
+  let m;
+  const doImport = () => {
+    let accountId = accountSel.value;
+    if (accountId === "__new") {
+      const a = Accounts.save({ name: filename || "OFX import", kind: "checking", currency: "USD" });
+      accountId = a.id;
+    }
+    transactions.forEach((t) => {
+      Transactions.save({
+        accountId,
+        date: t.date,
+        vendor: t.vendor,
+        amount: t.amount,
+        type: t.type,
+        category: VendorRules.categoryFor(t.vendor) || "",
+        cleared: false,
+        source: filename || "ofx",
+        memo: t.memo || "",
+        fitid: t.fitid || "",
+      });
+    });
+    toast(`Imported ${transactions.length} transactions`);
+    m.close();
+  };
+  const footer = el("div", { class: "row" },
+    el("div", { class: "spacer" }),
+    el("button", { class: "btn", onclick: () => m.close() }, "Cancel"),
+    el("button", { class: "btn primary", onclick: doImport }, "Import"),
+  );
+  m = openModal({ title: `OFX/QFX import · ${transactions.length} txns`, body, footer });
 }
 
 function importWizardStep2(text, filename) {

@@ -148,7 +148,7 @@ export default function bills() {
       grid.append(el("div", { class: "empty small" }, "No receipts attached yet. Add a receipt URL to a bill to surface it here."));
     } else {
       withReceipts.forEach((b) => {
-        const isImg = /\.(png|jpe?g|gif|webp|heic|avif)$/i.test(b.receiptUrl);
+        const isImg = /^data:image\//.test(b.receiptUrl) || /\.(png|jpe?g|gif|webp|heic|avif)$/i.test(b.receiptUrl);
         grid.append(el("div", { class: "receipt-card", onclick: () => openBillForm(b) },
           isImg
             ? el("img", { src: b.receiptUrl, loading: "lazy", style: { width: "100%", height: "120px", objectFit: "cover", borderRadius: "6px" } })

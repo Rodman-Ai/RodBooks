@@ -67,6 +67,7 @@ export default function reports() {
             s.addEventListener("change", () => { year = s.value; render(); });
             return s;
           })(),
+          el("a", { class: "btn", href: "#/reports/custom" }, "Custom pivot →"),
           el("button", { class: "btn", onclick: () => window.print() }, "Print"),
         ),
       ),
