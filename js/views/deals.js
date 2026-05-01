@@ -346,6 +346,14 @@ export function dealDetail({ id }) {
         ),
         el("div", { class: "row" },
           el("a", { class: "btn", href: `#/brand/${encodeURIComponent(d.company)}` }, "Open brand →"),
+          el("button", { class: "btn", title: "AI: summarize the brief", onclick: async () => {
+            const { openBriefSummarizer } = await import("../aiActions.js");
+            openBriefSummarizer(d.notes || "");
+          } }, "Summarize brief"),
+          el("button", { class: "btn", title: "AI: grade this deal vs your history", onclick: async () => {
+            const { openDealGrader } = await import("../aiActions.js");
+            openDealGrader(d);
+          } }, "Grade deal"),
           el("button", { class: "btn", onclick: () => {
             const { id, paid, paidDate, paidAmount, invoiceNumber, invoiceDate, invoiceUrl, transactionId, ...rest } = d;
             openDealForm({ ...rest, paid: false, paidDate: "", paidAmount: 0, invoiceNumber: "", invoiceDate: "", invoiceUrl: "", transactionId: "", serviceDate: todayISO(), notes: (d.notes || "") + (d.notes ? " · " : "") + "(repeat)" });
