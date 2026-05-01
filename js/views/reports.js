@@ -68,6 +68,10 @@ export default function reports() {
             return s;
           })(),
           el("a", { class: "btn", href: "#/reports/custom" }, "Custom pivot →"),
+          el("button", { class: "btn", title: "AI suggestions for next week", onclick: async () => {
+            const { openCoachMode } = await import("../aiActions.js");
+            openCoachMode();
+          } }, "Coach mode"),
           el("button", { class: "btn", onclick: async () => {
             const { previewDigest } = await import("../digest.js");
             previewDigest();
