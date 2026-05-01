@@ -562,6 +562,34 @@ mark.risk-red { background: rgba(239,68,68,.25); color: #f47272; padding: 1px 2p
 mark.risk-amber { background: rgba(245,158,11,.25); color: #f5b34b; padding: 1px 2px; border-radius: 3px; }
 mark.risk-blue { background: rgba(59,130,246,.20); color: #6aa6ff; padding: 1px 2px; border-radius: 3px; }
 
+/* Receipt gallery */
+.receipt-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px;
+}
+.receipt-card {
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px; cursor: pointer;
+}
+.receipt-card:hover { border-color: var(--line-2); }
+.receipt-doc {
+  height: 120px; display: grid; place-items: center; font-size: 36px;
+  background: var(--bg-3); border-radius: 6px;
+}
+
+/* Tier rows for affiliates / line items / email log */
+.tier-row, .line-row {
+  display: grid; gap: 6px; align-items: center;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  margin-bottom: 4px;
+}
+.line-row { grid-template-columns: 2fr 1fr auto; }
+.email-row {
+  display: grid; gap: 6px;
+  grid-template-columns: 140px 1fr auto;
+  margin-bottom: 8px;
+}
+.email-row textarea { grid-column: 1 / -1; }
+
 /* Lock screen */
 #lock-screen {
   position: fixed; inset: 0; background: var(--bg);

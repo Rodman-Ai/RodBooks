@@ -107,14 +107,29 @@ function openMileageForm(trip) {
   const date = el("input", { class: "input", type: "date", value: t.date || "" });
   const miles = el("input", { class: "input", type: "number", min: "0", step: "0.1", value: t.miles ?? "" });
   const purpose = el("input", { class: "input", value: t.purpose || "", placeholder: "e.g. Studio shoot for Brand X" });
+  const fromAddr = el("input", { class: "input", value: t.fromAddr || "", placeholder: "Start address" });
+  const toAddr = el("input", { class: "input", value: t.toAddr || "", placeholder: "End address" });
   const fromTo = el("input", { class: "input", value: t.fromTo || "", placeholder: "Home → Studio" });
   const notes = el("textarea", { class: "textarea" }, t.notes || "");
+  const mapsLink = el("div", { class: "small muted" });
+  const refreshMaps = () => {
+    if (fromAddr.value && toAddr.value) {
+      const url = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(fromAddr.value)}&destination=${encodeURIComponent(toAddr.value)}`;
+      mapsLink.innerHTML = `<a href="${url}" target="_blank" rel="noreferrer">Open route in Google Maps ↗</a>`;
+    } else mapsLink.textContent = "Add both addresses to generate a Maps link.";
+  };
+  fromAddr.addEventListener("input", refreshMaps);
+  toAddr.addEventListener("input", refreshMaps);
+  refreshMaps();
 
   const body = el("div", { class: "form-grid" },
     field("Date", date),
     field("Miles", miles),
     field("Purpose", purpose, true),
-    field("From → To", fromTo, true),
+    field("From address", fromAddr),
+    field("To address", toAddr),
+    el("div", { class: "field full" }, mapsLink),
+    field("From → To (label)", fromTo, true),
     field("Notes", notes, true),
   );
   let m;
@@ -125,6 +140,8 @@ function openMileageForm(trip) {
       date: date.value,
       miles: +miles.value || 0,
       purpose: purpose.value.trim(),
+      fromAddr: fromAddr.value.trim(),
+      toAddr: toAddr.value.trim(),
       fromTo: fromTo.value.trim(),
       notes: notes.value,
     });

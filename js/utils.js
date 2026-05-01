@@ -208,6 +208,40 @@ export function dealStageAge(d) {
   return { stage: "Pending", days: Math.round((Date.now() - (d.createdAt || Date.now())) / 86400000) };
 }
 
+// Last-touched timestamp for a brand (derives from deals + email log).
+export function lastTouchedAt(deals, contact) {
+  let max = 0;
+  deals.forEach((d) => {
+    [d.serviceDate, d.postDate, d.invoiceDate, d.paidDate].forEach((dt) => {
+      if (!dt) return;
+      const ms = parseDate(dt)?.getTime();
+      if (ms && ms > max) max = ms;
+    });
+    if (d.updatedAt && d.updatedAt > max) max = d.updatedAt;
+  });
+  (contact?.emailLog || []).forEach((e) => {
+    const ms = parseDate(e.date)?.getTime();
+    if (ms && ms > max) max = ms;
+  });
+  return max || 0;
+}
+
+// Composite brand health: warmth (recency × frequency × paid rate) + responsiveness (avg paid lag).
+export function brandHealth(deals, contact) {
+  if (!deals.length) return { score: 0, label: "—", cls: "gray" };
+  const warmth = brandWarmth(deals);
+  const paidWithLag = deals.filter((d) => d.paid && d.invoiceDate && d.paidDate);
+  let respScore = 50;
+  if (paidWithLag.length) {
+    const avgLag = paidWithLag.reduce((s, d) => s + Math.max(0, (parseDate(d.paidDate) - parseDate(d.invoiceDate)) / 86400000), 0) / paidWithLag.length;
+    respScore = Math.max(0, 100 - avgLag * 1.5); // 0d → 100, 67d → 0
+  }
+  const composite = Math.round(warmth * 0.6 + respScore * 0.4);
+  const label = composite >= 75 ? "Excellent" : composite >= 55 ? "Healthy" : composite >= 35 ? "Watch" : "At risk";
+  const cls = composite >= 75 ? "green" : composite >= 55 ? "blue" : composite >= 35 ? "amber" : "red";
+  return { score: composite, label, cls };
+}
+
 // Brand warmth: 0-100 score from recency, frequency, payment health.
 export function brandWarmth(deals) {
   if (!deals.length) return 0;

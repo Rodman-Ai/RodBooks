@@ -1,7 +1,7 @@
-import { el, fmtMoney, fmtDate, debounce, todayISO } from "../utils.js";
+import { el, fmtMoney, fmtDate, fmtDateShort, debounce, todayISO } from "../utils.js";
 import { Bills, subscribe, toCSV, downloadFile } from "../store.js";
 import { openBillForm } from "../forms.js";
-import { confirmDialog, toast } from "../ui.js";
+import { openModal, confirmDialog, toast } from "../ui.js";
 
 const FILTER_KEY = "rodbooks:filters:bills";
 function loadFilters() { try { return JSON.parse(localStorage.getItem(FILTER_KEY)) || {}; } catch { return {}; } }
@@ -43,6 +43,7 @@ export default function bills() {
           el("div", { class: "sub" }, `${filtered.length} of ${all.length} · Total ${fmtMoney(total)}`),
         ),
         el("div", { class: "row" },
+          el("button", { class: "btn", onclick: () => openReceiptGallery() }, "Receipt gallery"),
           el("button", { class: "btn", onclick: () => exportCsv() }, "Export CSV"),
           el("button", { class: "btn primary", onclick: () => openBillForm() }, "+ New bill"),
         ),
@@ -138,6 +139,27 @@ export default function bills() {
     ]);
     downloadFile(`rodbooks-bills-${todayISO()}.csv`, csv, "text/csv");
     toast("Exported bills CSV");
+  }
+
+  function openReceiptGallery() {
+    const withReceipts = Bills.all().filter((b) => b.receiptUrl).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    const grid = el("div", { class: "receipt-grid" });
+    if (withReceipts.length === 0) {
+      grid.append(el("div", { class: "empty small" }, "No receipts attached yet. Add a receipt URL to a bill to surface it here."));
+    } else {
+      withReceipts.forEach((b) => {
+        const isImg = /\.(png|jpe?g|gif|webp|heic|avif)$/i.test(b.receiptUrl);
+        grid.append(el("div", { class: "receipt-card", onclick: () => openBillForm(b) },
+          isImg
+            ? el("img", { src: b.receiptUrl, loading: "lazy", style: { width: "100%", height: "120px", objectFit: "cover", borderRadius: "6px" } })
+            : el("div", { class: "receipt-doc" }, "📄"),
+          el("div", { class: "small", style: { marginTop: 6, fontWeight: 600 } }, b.vendor),
+          el("div", { class: "small muted" }, `${fmtDateShort(b.date)} · ${fmtMoney(b.amount)}`),
+          el("a", { class: "small muted", href: b.receiptUrl, target: "_blank", rel: "noreferrer", onclick: (e) => e.stopPropagation() }, "Open ↗"),
+        ));
+      });
+    }
+    openModal({ title: `Receipts (${withReceipts.length})`, body: grid, wide: true });
   }
 
   const unsub = subscribe(render);

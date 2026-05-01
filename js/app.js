@@ -23,6 +23,9 @@ import mileageView from "./views/mileage.js";
 import activityView from "./views/activity.js";
 import taxView from "./views/tax.js";
 import templatesView from "./views/templates.js";
+import bankingView from "./views/banking.js";
+import incomeView from "./views/income.js";
+import { runScheduler } from "./scheduler.js";
 import contractsView from "./views/contracts.js";
 import { runScheduler } from "./scheduler.js";
 
@@ -64,6 +67,8 @@ register("/reports", () => reports());
 register("/tax", () => taxView());
 register("/templates", () => templatesView());
 register("/contracts", () => contractsView());
+register("/banking", () => bankingView());
+register("/income", () => incomeView());
 register("/settings", () => settingsView());
 
 const TITLES = {
@@ -82,6 +87,8 @@ const TITLES = {
   "/tax": "Tax",
   "/templates": "Templates",
   "/contracts": "Contract scanner",
+  "/banking": "Banking",
+  "/income": "Other income",
   "/settings": "Settings",
 };
 
@@ -166,7 +173,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "/" && !e.metaKey && !e.ctrlKey) { e.preventDefault(); openPalette(); }
   if (e.key === "g") {
     const next = (ev) => {
-      const map = { d: "/", b: "/deals", k: "/pipeline", i: "/invoices", e: "/bills", m: "/mileage", c: "/contacts", t: "/timeline", a: "/automations", l: "/activity", r: "/reports", x: "/tax", p: "/templates", s: "/settings" };
+      const map = { d: "/", b: "/deals", k: "/pipeline", i: "/invoices", e: "/bills", m: "/mileage", c: "/contacts", t: "/timeline", a: "/automations", l: "/activity", r: "/reports", x: "/tax", p: "/templates", n: "/banking", o: "/income", s: "/settings" };
       const r = map[ev.key];
       if (r) go(r);
       document.removeEventListener("keydown", next, true);

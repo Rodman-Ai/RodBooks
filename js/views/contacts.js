@@ -1,4 +1,4 @@
-import { el, fmtMoney, initials, debounce, netFee } from "../utils.js";
+import { el, fmtMoney, initials, debounce, netFee, lastTouchedAt, brandHealth, fmtDateShort } from "../utils.js";
 import { Contacts, Deals, subscribe } from "../store.js";
 import { openContactForm } from "../forms.js";
 import { confirmDialog, toast } from "../ui.js";
@@ -24,7 +24,11 @@ export default function contacts() {
       const ds = deals.filter((d) => d.contactId === c.id || (d.company || "").toLowerCase() === (c.name || "").toLowerCase());
       const total = ds.reduce((s, d) => s + netFee(d), 0);
       const unpaid = ds.filter((d) => !d.paid).reduce((s, d) => s + netFee(d), 0);
-      return { count: ds.length, total, unpaid };
+      const touched = lastTouchedAt(ds, c);
+      const daysSince = touched ? Math.round((Date.now() - touched) / 86400000) : null;
+      const health = brandHealth(ds, c);
+      const needsNudge = ds.length > 0 && daysSince != null && daysSince > 60 && unpaid === 0;
+      return { count: ds.length, total, unpaid, touched, daysSince, health, needsNudge };
     };
 
     node.innerHTML = "";
@@ -80,6 +84,8 @@ export default function contacts() {
                   el("th", { class: "num" }, "Deals"),
                   el("th", { class: "num" }, "Total"),
                   el("th", { class: "num" }, "Outstanding"),
+                  el("th", {}, "Last touched"),
+                  el("th", {}, "Health"),
                   el("th", {}, ""),
                 )));
                 const tbody = el("tbody");
@@ -96,6 +102,11 @@ export default function contacts() {
                     el("td", { class: "num" }, s.count),
                     el("td", { class: "num" }, fmtMoney(s.total)),
                     el("td", { class: "num" }, fmtMoney(s.unpaid)),
+                    el("td", { class: "small" },
+                      s.touched ? fmtDateShort(new Date(s.touched).toISOString().slice(0, 10)) : el("span", { class: "muted" }, "—"),
+                      s.needsNudge ? el("span", { class: "pill amber", style: { marginLeft: 6 } }, "Nudge?") : null,
+                    ),
+                    el("td", {}, s.count > 0 ? el("span", { class: `pill ${s.health.cls}` }, `${s.health.score}° ${s.health.label}`) : el("span", { class: "muted small" }, "—")),
                     el("td", {},
                       el("button", { class: "btn sm danger", onclick: async (e) => {
                         e.stopPropagation();

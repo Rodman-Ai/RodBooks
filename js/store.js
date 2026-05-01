@@ -25,6 +25,8 @@ const defaults = () => ({
     defaultTerms: 30, // net days
     lateFeePct: 0, // 0 = off; e.g. 1.5 for 1.5% / month
     cashOnHand: 0, // manual current cash balance (for runway calc)
+    invoiceTemplate: { logo: "", primary: "#22c55e", footer: "", taxId: "" }, // #41
+    homeOffice: { sqft: 0, totalSqft: 0, monthlyUtilities: 0 }, // #17
   },
   deals: [],
   bills: [],
@@ -39,6 +41,13 @@ const defaults = () => ({
   vendorRules: [], // { id, match, category } — rule for auto-categorize
   dealTemplates: [], // { id, name, contactId, company, svc, fee, partnerFeePct, terms, deliverables, cadence, dayOfMonth, lastRunAt, active }
   agents: [], // { id, name, email, defaultPct } — talent agents/managers
+  accounts: [], // { id, name, kind: checking|savings|credit, last4, currency }
+  transactions: [], // { id, accountId, date, vendor, amount, type: debit|credit, category, dealId, billId, cleared, source }
+  affiliates: [], // { id, brand, platform, code, tiers: [{from,to,pct}], notes }
+  affiliateEntries: [], // { id, affiliateId, period: 'YYYY-MM', revenue, commission, paid, paidDate }
+  tips: [], // { id, platform, period: 'YYYY-MM', amount, supporters, notes }
+  assets: [], // { id, name, category, purchaseDate, cost, life, notes } — depreciation
+  csvMappings: [], // { id, name, columnMap, sample } — saved bank import mappings
 });
 
 let cache = null;
@@ -76,6 +85,13 @@ function migrate(data) {
     vendorRules: data.vendorRules || [],
     dealTemplates: data.dealTemplates || [],
     agents: data.agents || [],
+    accounts: data.accounts || [],
+    transactions: data.transactions || [],
+    affiliates: data.affiliates || [],
+    affiliateEntries: data.affiliateEntries || [],
+    tips: data.tips || [],
+    assets: data.assets || [],
+    csvMappings: data.csvMappings || [],
   };
 }
 
@@ -220,6 +236,48 @@ export const Agents = {
   get: (id) => getState().agents.find((x) => x.id === id),
   save: (x) => upsertCollection("agents", x),
   remove: (id) => removeFromCollection("agents", id),
+};
+
+export const Accounts = {
+  all: () => getState().accounts,
+  get: (id) => getState().accounts.find((x) => x.id === id),
+  save: (x) => upsertCollection("accounts", x),
+  remove: (id) => removeFromCollection("accounts", id),
+};
+
+export const Transactions = {
+  all: () => getState().transactions,
+  get: (id) => getState().transactions.find((x) => x.id === id),
+  save: (x) => upsertCollection("transactions", x),
+  remove: (id) => removeFromCollection("transactions", id),
+  byAccount(accountId) { return getState().transactions.filter((t) => t.accountId === accountId); },
+};
+
+export const Affiliates = {
+  all: () => getState().affiliates,
+  get: (id) => getState().affiliates.find((x) => x.id === id),
+  save: (x) => upsertCollection("affiliates", x),
+  remove: (id) => removeFromCollection("affiliates", id),
+};
+export const AffiliateEntries = {
+  all: () => getState().affiliateEntries,
+  save: (x) => upsertCollection("affiliateEntries", x),
+  remove: (id) => removeFromCollection("affiliateEntries", id),
+};
+export const Tips = {
+  all: () => getState().tips,
+  save: (x) => upsertCollection("tips", x),
+  remove: (id) => removeFromCollection("tips", id),
+};
+export const Assets = {
+  all: () => getState().assets,
+  save: (x) => upsertCollection("assets", x),
+  remove: (id) => removeFromCollection("assets", id),
+};
+export const CsvMappings = {
+  all: () => getState().csvMappings,
+  save: (x) => upsertCollection("csvMappings", x),
+  remove: (id) => removeFromCollection("csvMappings", id),
 };
 
 export const VendorRules = {
