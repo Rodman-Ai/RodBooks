@@ -528,6 +528,7 @@ table.data .truncate { max-width: 220px; overflow: hidden; text-overflow: ellips
 .audience-row { grid-template-columns: 1fr 1fr 1fr auto; }
 .test-row { grid-template-columns: 140px 1fr auto; }
 .partial-row { grid-template-columns: 1fr 1fr 2fr auto; }
+.dispute-row { display: grid; gap: 6px; align-items: center; grid-template-columns: 1fr 1fr 1fr 2fr auto; margin-bottom: 4px; }
 
 /* Brand wiki rendered (markdown-as-pre for now) */
 .wiki-md {

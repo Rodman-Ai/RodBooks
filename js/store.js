@@ -30,6 +30,12 @@ const defaults = () => ({
     cashOnHand: 0, // manual current cash balance (for runway calc)
     invoiceTemplate: { logo: "", primary: "#22c55e", footer: "", taxId: "" }, // #41
     homeOffice: { sqft: 0, totalSqft: 0, monthlyUtilities: 0 }, // #17
+    connect: {
+      plaid: { clientId: "", secret: "", env: "sandbox" },
+      stripe: { publishableKey: "", secretKey: "" },
+      dropboxSign: { apiKey: "" },
+      llm: { provider: "anthropic", apiKey: "", model: "claude-sonnet-4-6" },
+    },
   },
   deals: [],
   bills: [],

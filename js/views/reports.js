@@ -156,6 +156,43 @@ export default function reports() {
         ),
       ),
 
+      // Quarterly profit attribution stack (#77)
+      (function () {
+        const yyyy = year;
+        const dealsY = Deals.all().filter((d) => d.paid && (d.paidDate || "").startsWith(yyyy));
+        const billsY = Bills.all().filter((b) => (b.date || "").startsWith(yyyy));
+        const labels = ["Q1", "Q2", "Q3", "Q4"];
+        const incomeQ = [0, 0, 0, 0];
+        const expenseQ = [0, 0, 0, 0];
+        dealsY.forEach((d) => {
+          const m = +(d.paidDate || "").slice(5, 7) - 1;
+          const q = m <= 2 ? 0 : m <= 4 ? 1 : m <= 7 ? 2 : 3;
+          if (m >= 0) incomeQ[q] += (+d.paidAmount || netFee(d));
+        });
+        billsY.forEach((b) => {
+          const m = +(b.date || "").slice(5, 7) - 1;
+          const q = m <= 2 ? 0 : m <= 4 ? 1 : m <= 7 ? 2 : 3;
+          if (m >= 0) expenseQ[q] += (+b.amount || 0);
+        });
+        const profitQ = incomeQ.map((v, i) => v - expenseQ[i]);
+        const max = Math.max(1, ...incomeQ, ...expenseQ);
+        return el("div", { class: "card" },
+          el("h3", {}, `Quarterly profit attribution · ${year}`),
+          el("div", { class: "small muted", style: { marginBottom: 8 } }, "Cash income vs. expenses by quarter, with net profit overlay."),
+          el("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "10px" } },
+            ...labels.map((l, i) => el("div", { style: { display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" } },
+              el("div", { style: { display: "flex", height: "120px", alignItems: "flex-end", gap: "4px", width: "100%", justifyContent: "center" } },
+                el("div", { style: { width: "30%", height: `${(incomeQ[i] / max) * 100}%`, background: "var(--accent)", borderRadius: "4px 4px 0 0" }, title: fmtMoney(incomeQ[i]) }),
+                el("div", { style: { width: "30%", height: `${(expenseQ[i] / max) * 100}%`, background: "var(--danger)", borderRadius: "4px 4px 0 0" }, title: fmtMoney(expenseQ[i]) }),
+              ),
+              el("div", { style: { fontWeight: 600, fontSize: "12px" } }, l),
+              el("div", { class: "small", style: { color: profitQ[i] >= 0 ? "var(--accent)" : "var(--danger)", fontWeight: 600 } }, fmtMoney(profitQ[i])),
+              el("div", { class: "small muted" }, `+${fmtMoneyShort(incomeQ[i])} -${fmtMoneyShort(expenseQ[i])}`),
+            )),
+          ),
+        );
+      })(),
+
       el("div", { class: "card" },
         el("h3", {}, "Margin by service type"),
         el("div", { class: "small muted", style: { marginBottom: 8 } }, "Allocates expenses pro-rata by income share. Use as a rough guide."),

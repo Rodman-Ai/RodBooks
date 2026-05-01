@@ -129,6 +129,18 @@ export function openDealForm(deal) {
   const perfEngagements = input(d.perfEngagements || "", "number", { step: "1", min: "0" });
   // Foreign-wire fee (#30): manual flag + amount logged into deal.
   const wireFee = input(d.wireFee || "", "number", { step: "0.01", min: "0", placeholder: "e.g. 25" });
+  // International withholding flag (#37)
+  const withholdingPct = input(d.withholdingPct || "", "number", { step: "0.01", min: "0", max: "100", placeholder: "e.g. 30" });
+  const withholdingTreaty = input(d.withholdingTreaty || "", "text", { placeholder: "e.g. US-DE Article 12 (royalties)" });
+  // Invoice approval workflow (#48): "draft" | "sent" | "approved" | "rejected" | "n/a"
+  const approvalStatus = selectEl(d.approvalStatus || "n/a", [
+    { value: "n/a", label: "Not applicable" },
+    { value: "draft", label: "Draft" },
+    { value: "sent", label: "Sent for approval" },
+    { value: "approved", label: "Approved" },
+    { value: "rejected", label: "Rejected — needs rework" },
+  ]);
+  const approvalNote = input(d.approvalNote || "", "text", { placeholder: "Approver / reason" });
   const baseCcy = (Settings.get().currency || "USD");
   const dealCcy = selectEl(d.currency || baseCcy, ["USD", "EUR", "GBP", "CAD", "AUD", "JPY", "INR", "CHF", "BRL", "MXN", "SGD"].map((v) => ({ value: v, label: v })));
   const fxRate = input(d.fxRate || "", "number", { step: "0.000001", min: "0", placeholder: `to ${baseCcy} (1.00 if same)` });
@@ -173,6 +185,33 @@ export function openDealForm(deal) {
     Deals.all().filter((x) => x.id !== d.id && x.invoiceNumber).map((x) => ({ value: x.id, label: `${x.company} · ${x.invoiceNumber}` })),
   );
   const creditNoteOf = selectEl(d.creditNoteOf || "", creditOptions);
+
+  // Dispute / chargeback log (#47): array of { date, status, amount, note }
+  let disputes = (d.disputes || []).slice();
+  const disputeBox = el("div", { class: "disputes" });
+  const renderDisputes = () => {
+    disputeBox.innerHTML = "";
+    disputes.forEach((dx, i) => {
+      const date = input(dx.date || todayISO(), "date");
+      date.addEventListener("input", () => { disputes[i].date = date.value; });
+      const status = selectEl(dx.status || "open", [
+        { value: "open", label: "Open" },
+        { value: "investigating", label: "Investigating" },
+        { value: "won", label: "Won — funds returned" },
+        { value: "lost", label: "Lost — refunded" },
+        { value: "withdrawn", label: "Withdrawn" },
+      ]);
+      status.addEventListener("change", () => { disputes[i].status = status.value; });
+      const amt = input(dx.amount || 0, "number", { step: "0.01", min: "0" });
+      amt.addEventListener("input", () => { disputes[i].amount = +amt.value || 0; });
+      const note = input(dx.note || "", "text", { placeholder: "Reason / case ID" });
+      note.addEventListener("input", () => { disputes[i].note = note.value; });
+      const remove = el("button", { class: "btn sm danger", type: "button", onclick: () => { disputes.splice(i, 1); renderDisputes(); } }, "×");
+      disputeBox.append(el("div", { class: "dispute-row" }, date, status, amt, note, remove));
+    });
+    disputeBox.append(el("button", { class: "btn sm", type: "button", style: { marginTop: 4 }, onclick: () => { disputes.push({ date: todayISO(), status: "open", amount: 0, note: "" }); renderDisputes(); } }, "+ Log dispute"));
+  };
+  renderDisputes();
 
   // Tiered / escalator line items (#3): when present, fee = sum of line amounts.
   let lineItems = (d.lineItems || []).slice();
@@ -329,6 +368,11 @@ export function openDealForm(deal) {
     field("Notes URL (GPT/Doc)", notesUrl),
     field("Transaction / Ref", transactionId),
     field("Foreign-wire fee ($)", wireFee),
+    field("Withholding %", withholdingPct),
+    field("Treaty / withholding note", withholdingTreaty, { full: true }),
+    field("Approval status", approvalStatus),
+    field("Approval note", approvalNote),
+    el("div", { class: "field full" }, el("label", {}, "Disputes / chargebacks"), disputeBox),
     field("Hours worked", hoursWorked),
     el("div", { class: "field full small muted" }, hourlyHint),
     field("Performance: platform", perfPlatform),
@@ -385,6 +429,11 @@ export function openDealForm(deal) {
       perfViews: +perfViews.value || 0,
       perfEngagements: +perfEngagements.value || 0,
       wireFee: +wireFee.value || 0,
+      withholdingPct: +withholdingPct.value || 0,
+      withholdingTreaty: withholdingTreaty.value,
+      approvalStatus: approvalStatus.value,
+      approvalNote: approvalNote.value,
+      disputes: disputes.filter((dx) => dx.amount > 0 || dx.note),
       agentId: agent.value && agent.value !== "__new" ? agent.value : "",
       agentPct: +agentPct.value || 0,
       exclusivityFrom: exclusivityFrom.value,
@@ -566,6 +615,7 @@ export function openContactForm(contact) {
   const phone = input(c.phone, "tel");
   const notes = el("textarea", { class: "textarea" }, c.notes || "");
   const tags = input((c.tags || []).join(", "), "text", { placeholder: "tier1, rush, pays-late, great-team" });
+  const confidential = input(null, "checkbox", { checked: !!c.confidential });
   const wikiMd = el("textarea", { class: "textarea", style: { minHeight: "120px" }, placeholder: "Brand notes (markdown OK)" }, c.wikiMd || "");
 
   // Email-thread paste log (#52)
@@ -660,6 +710,7 @@ export function openContactForm(contact) {
     field("Email", email),
     field("Phone", phone),
     field("Tags (comma-separated)", tags, { full: true }),
+    el("div", { class: "field" }, el("label", {}, "Confidential? (hide from media kit / share-bundle)"), el("div", {}, confidential)),
     el("div", { class: "field full" }, el("label", {}, "Default rates ($)"), rateGrid),
     el("div", { class: "field full" }, el("label", {}, "Audience snapshots"), audienceBox),
     el("div", { class: "field full" }, el("label", {}, "Portfolio links"), portBox),
@@ -684,6 +735,7 @@ export function openContactForm(contact) {
       notes: notes.value,
       tags: tags.value.split(",").map((s) => s.trim()).filter(Boolean),
       wikiMd: wikiMd.value,
+      confidential: confidential.checked,
       emailLog: emailLog.filter((e) => (e.subject || "").trim() || (e.body || "").trim()),
       defaultRates,
       audience: audience.filter((a) => a.count || a.date),

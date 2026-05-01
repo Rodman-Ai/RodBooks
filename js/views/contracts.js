@@ -61,6 +61,7 @@ export default function contractsView() {
           return sel;
         })(),
         el("button", { class: "btn ghost", onclick: () => { text = ""; ta.value = ""; render(); } }, "Clear"),
+        el("button", { class: "btn primary", onclick: askAI }, "Ask AI"),
       ),
 
       (function () {
@@ -76,10 +77,50 @@ export default function contractsView() {
       })(),
 
       el("div", { id: "scan-results", style: { marginTop: "16px" } }, renderResultsBody(flags, highlightHtml)),
+      el("div", { id: "ai-results" }),
     );
     // Wire late ref to ta so dropdown can reset
     if (node._ta) ta = node._ta;
   };
+
+  async function askAI() {
+    const target = node.querySelector("#ai-results");
+    if (!target) return;
+    target.innerHTML = "";
+    if (!text.trim()) {
+      target.append(el("div", { class: "small muted" }, "Paste a contract first."));
+      return;
+    }
+    const { llmIsConnected, llmGenerate } = await import("../llm.js");
+    const { toast } = await import("../ui.js");
+    if (!llmIsConnected()) {
+      target.append(el("div", { class: "card", style: { borderLeft: "3px solid var(--warn)" } },
+        el("strong", {}, "AI not connected"),
+        el("div", { class: "small muted", style: { marginTop: 4 } }, "Add an API key under "),
+        el("a", { href: "#/connect" }, "Settings → Connect"),
+        el("span", {}, " to enable AI redline.")));
+      return;
+    }
+    target.append(el("div", { class: "card" }, el("div", { class: "small muted" }, "Asking AI…")));
+    const sys = "You are a creator-side contract reviewer. Output: 1) overall risk score (low/med/high) with one sentence, 2) up to 5 bullet flags (term + why it matters + suggested redline). Be concise.";
+    try {
+      const out = await llmGenerate({ system: sys, user: "Review this contract:\n\n" + text.slice(0, 12000), maxTokens: 800 });
+      target.innerHTML = "";
+      target.append(el("div", { class: "card" },
+        el("div", { class: "spread" },
+          el("strong", {}, "AI redline"),
+          el("button", { class: "btn sm", onclick: () => { navigator.clipboard.writeText(out); toast("Copied"); } }, "Copy"),
+        ),
+        el("pre", { style: { whiteSpace: "pre-wrap", marginTop: 10, fontFamily: "-apple-system, sans-serif", fontSize: "13px", lineHeight: 1.5 } }, out),
+      ));
+    } catch (e) {
+      target.innerHTML = "";
+      target.append(el("div", { class: "card", style: { borderLeft: "3px solid var(--danger)" } },
+        el("strong", {}, "AI request failed"),
+        el("div", { class: "small muted", style: { marginTop: 4 } }, e.message),
+      ));
+    }
+  }
 
   let ta;
   const renderResults = () => {

@@ -27,6 +27,9 @@ import bankingView from "./views/banking.js";
 import incomeView from "./views/income.js";
 import customReportView from "./views/custom-report.js";
 import bookingView from "./views/booking.js";
+import connectView from "./views/connect.js";
+import mediaKitView from "./views/mediakit.js";
+import inboxView from "./views/inbox.js";
 import { runScheduler } from "./scheduler.js";
 import contractsView from "./views/contracts.js";
 import { runScheduler } from "./scheduler.js";
@@ -159,6 +162,9 @@ register("/contracts", () => contractsView());
 register("/banking", () => bankingView());
 register("/income", () => incomeView());
 register("/booking", () => bookingView());
+register("/inbox", () => inboxView());
+register("/mediakit", () => mediaKitView());
+register("/connect", () => connectView());
 register("/settings", () => settingsView());
 
 const TITLES = {
@@ -180,6 +186,9 @@ const TITLES = {
   "/banking": "Banking",
   "/income": "Other income",
   "/booking": "Booking",
+  "/inbox": "Inbox",
+  "/mediakit": "Media kit",
+  "/connect": "Connect",
   "/reports/custom": "Custom report",
   "/settings": "Settings",
 };
