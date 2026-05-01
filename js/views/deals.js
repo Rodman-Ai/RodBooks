@@ -390,9 +390,18 @@ export function dealDetail({ id }) {
         ),
       ),
       el("div", { class: "kpi-grid" },
-        kv("Gross fee", fmtMoney(d.fee)),
+        kv("Gross fee", fmtMoney(d.fee) + (d.currency && d.currency !== Settings.get().currency ? ` ${d.currency}` : "")),
         kv("Partner fee", d.partnerFeePct ? `${d.partnerFeePct}%` : "—"),
-        kv("Net", fmtMoney(netFee(d))),
+        kv("Net", (function () {
+          const baseCcy = Settings.get().currency || "USD";
+          if (d.currency && d.currency !== baseCcy && d.fxRate) {
+            return el("span", {},
+              fmtMoney(netFee(d)) + " " + d.currency,
+              el("div", { class: "small muted" }, `≈ ${fmtMoney(netFee(d) * d.fxRate)} ${baseCcy} @ ${d.fxRate}`),
+            );
+          }
+          return fmtMoney(netFee(d));
+        })()),
         kv("Paid", d.paid ? fmtMoney(d.paidAmount || netFee(d)) : "—"),
       ),
       el("div", { class: "card" },

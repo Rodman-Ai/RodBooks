@@ -31,6 +31,12 @@ const COMMANDS = [
   { label: "Toggle theme", action: () => import("./theme.js").then((m) => m.toggleTheme()), kind: "Action" },
   { label: "Toggle density (comfortable / compact)", action: () => toggleDensity(), kind: "Action" },
   { label: "Show keyboard shortcuts", action: () => openHelp(), kind: "Action" },
+  { label: "Install RodBooks (add to home screen)", action: async () => {
+      const { toast } = await import("./ui.js");
+      if (!window.installPrompt) { toast("Install prompt not available — open the browser menu.", "warn", 4000); return; }
+      const ok = await window.installPrompt();
+      toast(ok ? "Installed" : "Install dismissed");
+    }, kind: "Action" },
   { label: "Export JSON", action: async () => {
       const { exportJSON, downloadFile } = await import("./store.js");
       downloadFile(`rodbooks-${new Date().toISOString().slice(0, 10)}.json`, exportJSON(), "application/json");

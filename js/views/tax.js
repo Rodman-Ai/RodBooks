@@ -1,7 +1,7 @@
 // Tax workbench: Schedule C box totals, SE tax, state tax, quarterly payment log, 1099 payer tracker.
 
 import { el, fmtMoney, fmtDate, fmtDateShort, todayISO, netFee, parseDate } from "../utils.js";
-import { Deals, Bills, Settings, TaxPayments, Assets, subscribe, downloadFile, toCSV } from "../store.js";
+import { Deals, Bills, Settings, TaxPayments, Assets, SalesTax, subscribe, downloadFile, toCSV } from "../store.js";
 import { openModal, toast, confirmDialog } from "../ui.js";
 
 // 5-year MACRS half-year convention (cameras, computers, lights). Approximate.
@@ -296,6 +296,70 @@ export default function taxView() {
         );
       })(),
 
+      // Sales-tax tracker (#36)
+      (function () {
+        const yEntries = SalesTax.all().filter((e) => (e.date || "").startsWith(year)).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+        const collected = yEntries.reduce((s, e) => s + (+e.taxCollected || 0), 0);
+        const remitted = yEntries.filter((e) => e.paid).reduce((s, e) => s + (+e.taxCollected || 0), 0);
+        const owed = collected - remitted;
+        const byState = {};
+        yEntries.forEach((e) => {
+          const k = e.state || "—";
+          if (!byState[k]) byState[k] = { state: k, sales: 0, tax: 0, owed: 0 };
+          byState[k].sales += +e.taxableSales || 0;
+          byState[k].tax += +e.taxCollected || 0;
+          if (!e.paid) byState[k].owed += +e.taxCollected || 0;
+        });
+        return el("div", { class: "card" },
+          el("div", { class: "spread" },
+            el("h3", {}, `Sales-tax tracker · ${year}`),
+            el("button", { class: "btn primary", onclick: () => openSalesTaxForm({}) }, "+ Log taxable sale"),
+          ),
+          el("div", { class: "small muted", style: { marginBottom: 8 } }, "For digital products, merch, or workshops sold across state nexus. Track per-state and remit on schedule."),
+          el("div", { class: "kpi-grid" },
+            kpi("Collected", fmtMoney(collected)),
+            kpi("Remitted", fmtMoney(remitted)),
+            kpi("Outstanding", fmtMoney(owed), owed > 0 ? "down" : "up"),
+            kpi("States", String(Object.keys(byState).length)),
+          ),
+          Object.keys(byState).length === 0
+            ? el("div", { class: "empty small" }, "No taxable sales logged yet.")
+            : el("table", { class: "data" },
+                el("thead", {}, el("tr", {},
+                  el("th", {}, "State"),
+                  el("th", { class: "num" }, "Taxable sales"),
+                  el("th", { class: "num" }, "Tax collected"),
+                  el("th", { class: "num" }, "Outstanding"),
+                )),
+                el("tbody", {}, ...Object.values(byState).sort((a, b) => b.tax - a.tax).map((r) => el("tr", {},
+                  el("td", { style: { fontWeight: 600 } }, r.state),
+                  el("td", { class: "num" }, fmtMoney(r.sales)),
+                  el("td", { class: "num" }, fmtMoney(r.tax)),
+                  el("td", { class: "num", style: r.owed > 0 ? { color: "var(--warn)" } : null }, fmtMoney(r.owed)),
+                ))),
+              ),
+          yEntries.length > 0 && el("div", { style: { marginTop: 12 } },
+            el("h4", { style: { fontSize: "12px", color: "var(--muted)", textTransform: "uppercase", margin: "8px 0" } }, "Entries"),
+            el("table", { class: "data" },
+              el("thead", {}, el("tr", {},
+                el("th", {}, "Date"), el("th", {}, "State"),
+                el("th", { class: "num" }, "Sales"), el("th", { class: "num" }, "Rate"),
+                el("th", { class: "num" }, "Tax"), el("th", {}, "Status"), el("th", {}, ""),
+              )),
+              el("tbody", {}, ...yEntries.map((e) => el("tr", {},
+                el("td", { class: "small muted" }, fmtDate(e.date)),
+                el("td", {}, e.state || "—"),
+                el("td", { class: "num small muted" }, fmtMoney(e.taxableSales)),
+                el("td", { class: "num small muted" }, `${(+e.ratePct || 0).toFixed(2)}%`),
+                el("td", { class: "num" }, fmtMoney(e.taxCollected)),
+                el("td", {}, el("span", { class: `pill ${e.paid ? "green" : "amber"}` }, e.paid ? "Remitted" : "Owed")),
+                el("td", {}, el("button", { class: "btn sm", onclick: () => openSalesTaxForm(e) }, "Edit")),
+              ))),
+            ),
+          ),
+        );
+      })(),
+
       el("div", { class: "card" },
         el("div", { class: "spread" },
           el("h3", {}, `1099-NEC tracker · ${year}`),
@@ -393,6 +457,61 @@ function openTaxPaymentForm(payment) {
 
 function field2(label, control, full) {
   return el("div", { class: `field ${full ? "full" : ""}` }, el("label", {}, label), control);
+}
+
+function openSalesTaxForm(entry) {
+  const isNew = !entry?.id;
+  const e = entry || { date: todayISO(), state: "CA", taxableSales: 0, ratePct: 7.25, taxCollected: 0, paid: false, paidDate: "", notes: "" };
+  const date = el("input", { class: "input", type: "date", value: e.date || todayISO() });
+  const state = el("input", { class: "input", value: e.state || "CA", placeholder: "State (e.g. CA)" });
+  const taxableSales = el("input", { class: "input", type: "number", step: "0.01", min: "0", value: e.taxableSales || "" });
+  const ratePct = el("input", { class: "input", type: "number", step: "0.001", min: "0", value: e.ratePct || "" });
+  const taxCollected = el("input", { class: "input", type: "number", step: "0.01", min: "0", value: e.taxCollected || "" });
+  const paid = el("input", { type: "checkbox" }); paid.checked = !!e.paid;
+  const paidDate = el("input", { class: "input", type: "date", value: e.paidDate || "" });
+  const notes = el("textarea", { class: "textarea" }, e.notes || "");
+
+  const recalc = () => {
+    if (!taxCollected.value) {
+      const v = (+taxableSales.value || 0) * ((+ratePct.value || 0) / 100);
+      if (v) taxCollected.value = v.toFixed(2);
+    }
+  };
+  taxableSales.addEventListener("input", recalc);
+  ratePct.addEventListener("input", recalc);
+
+  const body = el("div", { class: "form-grid" },
+    field2("Date", date),
+    field2("State", state),
+    field2("Taxable sales ($)", taxableSales),
+    field2("Rate %", ratePct),
+    field2("Tax collected ($)", taxCollected),
+    el("div", { class: "field" }, el("label", {}, "Remitted?"), el("div", {}, paid)),
+    field2("Paid date", paidDate),
+    field2("Notes", notes, true),
+  );
+  let m;
+  const save = () => {
+    if (!taxableSales.value && !taxCollected.value) { toast("Sales or tax required", "warn"); return; }
+    SalesTax.save({
+      id: e.id, date: date.value, state: state.value.trim().toUpperCase(),
+      taxableSales: +taxableSales.value || 0, ratePct: +ratePct.value || 0, taxCollected: +taxCollected.value || 0,
+      paid: paid.checked, paidDate: paidDate.value, notes: notes.value,
+    });
+    toast(isNew ? "Logged" : "Updated");
+    m.close();
+  };
+  const footer = el("div", { class: "row" },
+    el("div", { class: "spacer" }),
+    !isNew && el("button", { class: "btn danger", onclick: async () => {
+      const ok = await confirmDialog({ title: "Delete entry?", danger: true, confirmLabel: "Delete" });
+      if (ok) { SalesTax.remove(e.id); m.close(); }
+    } }, "Delete"),
+    el("button", { class: "btn", onclick: () => m.close() }, "Cancel"),
+    el("button", { class: "btn primary", onclick: save }, isNew ? "Log entry" : "Save"),
+  );
+  m = openModal({ title: isNew ? "Log taxable sale" : "Edit entry", body, footer });
+  setTimeout(() => taxableSales.focus(), 30);
 }
 
 function openAssetForm(asset) {

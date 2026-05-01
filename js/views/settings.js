@@ -1,5 +1,5 @@
 import { el, todayISO, csvFromString } from "../utils.js";
-import { Settings, exportJSON, importJSON, resetAll, loadSampleData, downloadFile, subscribe, Deals, Bills, Contacts, Snapshots } from "../store.js";
+import { Settings, exportJSON, importJSON, resetAll, loadSampleData, downloadFile, subscribe, Deals, Bills, Contacts, Snapshots, isVaultEncrypted, enableEncryptionWithPassphrase, disableEncryption } from "../store.js";
 import { confirmDialog, toast, openModal } from "../ui.js";
 import { setTheme } from "../theme.js";
 import { setPasscode, isLockEnabled, lock as lockNow } from "../lock.js";
@@ -177,6 +177,22 @@ export default function settings() {
       ),
 
       el("div", { class: "card" },
+        el("h3", {}, "Encrypted-at-rest vault"),
+        el("div", { class: "small muted", style: { marginBottom: 8 } },
+          isVaultEncrypted()
+            ? "Your books are encrypted in localStorage with AES-GCM. You'll be prompted on next launch."
+            : "Optional. Encrypts the entire localStorage blob with a passphrase you choose. There is NO recovery — losing the passphrase means losing the data."),
+        el("div", { class: "row" },
+          isVaultEncrypted()
+            ? el("button", { class: "btn", onclick: async () => {
+                const ok = await confirmDialog({ title: "Disable encryption?", body: "Your data will be written back to localStorage in plaintext.", danger: true, confirmLabel: "Disable" });
+                if (ok) { await disableEncryption(); toast("Encryption disabled"); }
+              } }, "Disable encryption")
+            : el("button", { class: "btn primary", onclick: () => openEnableEncryption() }, "Enable encryption…"),
+        ),
+      ),
+
+      el("div", { class: "card" },
         el("h3", {}, "Snapshots"),
         el("div", { class: "small muted", style: { marginBottom: 8 } }, "Save a restore point before risky changes. Up to 20 retained."),
         el("div", { class: "row" },
@@ -196,6 +212,14 @@ export default function settings() {
           `${dealCount} deals · ${billCount} bills · ${contactCount} contacts. Stored locally on this device.`),
         el("div", { class: "row", style: { flexWrap: "wrap", gap: "8px" } },
           el("button", { class: "btn", onclick: onExport }, "Export JSON"),
+          el("button", { class: "btn", onclick: async () => {
+            const yr = String(prompt("Tax year for share bundle?", new Date().getFullYear()) || "").trim();
+            if (!yr) return;
+            const incReceipts = confirm("Include image receipts (data URIs) in the bundle?");
+            const { downloadShareBundle } = await import("../share.js");
+            try { await downloadShareBundle({ year: yr, includeReceipts: incReceipts }); toast("Share bundle exported"); }
+            catch (e) { toast("Bundle failed: " + e.message, "warn", 4000); }
+          } }, "Share with accountant…"),
           el("button", { class: "btn", onclick: onImport }, "Import JSON"),
           el("button", { class: "btn", onclick: openCsvImport }, "Import CSV…"),
           el("button", { class: "btn", onclick: onSample }, "Load sample data"),
@@ -239,6 +263,37 @@ function renderSnapshotList() {
       } }, "Delete"),
     )),
   );
+}
+
+function openEnableEncryption() {
+  const p1 = el("input", { class: "input", type: "password", placeholder: "Strong passphrase", autocomplete: "new-password" });
+  const p2 = el("input", { class: "input", type: "password", placeholder: "Confirm", autocomplete: "new-password" });
+  const body = el("div", { class: "stack" },
+    el("div", { class: "small muted" }, "AES-GCM via PBKDF2-SHA256 (200k iterations). The passphrase never leaves your device."),
+    el("div", { class: "small", style: { color: "var(--warn)" } }, "If you forget the passphrase, your data is unrecoverable."),
+    el("div", { class: "field" }, el("label", {}, "Passphrase"), p1),
+    el("div", { class: "field" }, el("label", {}, "Confirm"), p2),
+  );
+  let m;
+  const submit = async () => {
+    if (p1.value.length < 8) { toast("Use at least 8 characters", "warn"); return; }
+    if (p1.value !== p2.value) { toast("Doesn't match", "warn"); return; }
+    try {
+      await enableEncryptionWithPassphrase(p1.value);
+      toast("Encryption enabled");
+      m.close();
+    } catch (e) {
+      toast("Failed: " + e.message, "warn", 4000);
+    }
+  };
+  p2.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+  const footer = el("div", { class: "row" },
+    el("div", { class: "spacer" }),
+    el("button", { class: "btn", onclick: () => m.close() }, "Cancel"),
+    el("button", { class: "btn primary", onclick: submit }, "Enable"),
+  );
+  m = openModal({ title: "Enable encryption-at-rest", body, footer });
+  setTimeout(() => p1.focus(), 30);
 }
 
 function openSetPasscode() {

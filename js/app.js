@@ -1,5 +1,5 @@
 import { register, start, go } from "./router.js";
-import { getState, loadSampleData, Deals, Bills, Contacts, subscribe } from "./store.js";
+import { getState, loadSampleData, Deals, Bills, Contacts, subscribe, rawIsEncrypted, unlockVaultAndLoad } from "./store.js";
 import { openQuickAdd } from "./forms.js";
 import { applyTheme } from "./theme.js";
 import { isLockEnabled, isUnlocked, showLockScreen } from "./lock.js";
@@ -25,6 +25,7 @@ import taxView from "./views/tax.js";
 import templatesView from "./views/templates.js";
 import bankingView from "./views/banking.js";
 import incomeView from "./views/income.js";
+import customReportView from "./views/custom-report.js";
 import { runScheduler } from "./scheduler.js";
 import contractsView from "./views/contracts.js";
 import { runScheduler } from "./scheduler.js";
@@ -46,6 +47,64 @@ applyTheme();
 applyDensity();
 if (isLockEnabled() && !isUnlocked()) showLockScreen();
 
+// Encrypted-at-rest unlock screen (#70).
+if (rawIsEncrypted()) {
+  showVaultUnlock();
+}
+async function showVaultUnlock() {
+  const { el } = await import("./utils.js");
+  const wrap = el("div", { id: "vault-unlock", style: { position: "fixed", inset: 0, background: "var(--bg)", display: "grid", placeItems: "center", zIndex: 9998, padding: "20px" } });
+  const passphrase = el("input", { class: "input", type: "password", placeholder: "Enter your encryption passphrase", style: { fontSize: "16px", textAlign: "center", maxWidth: "320px" } });
+  const err = el("div", { class: "small", style: { color: "var(--danger)", height: "16px", marginTop: "8px", textAlign: "center" } });
+  const submit = async () => {
+    try {
+      await unlockVaultAndLoad(passphrase.value);
+      wrap.remove();
+    } catch (e) {
+      err.textContent = e.message || "Wrong passphrase";
+      passphrase.value = "";
+      passphrase.focus();
+    }
+  };
+  passphrase.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+  wrap.append(el("div", { class: "lock-card" },
+    el("div", { class: "logo", style: { width: "44px", height: "44px", margin: "0 auto 16px", fontSize: "16px" } }, "RB"),
+    el("div", { style: { fontSize: "18px", fontWeight: 600, textAlign: "center" } }, "RodBooks vault"),
+    el("div", { class: "small muted", style: { marginTop: 4, textAlign: "center" } }, "Your books are encrypted on this device. Enter the passphrase to decrypt."),
+    el("div", { style: { marginTop: 20, display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" } },
+      passphrase,
+      el("button", { class: "btn primary", style: { minWidth: 140 }, onclick: submit }, "Unlock vault"),
+    ),
+    err,
+  ));
+  document.body.append(wrap);
+  setTimeout(() => passphrase.focus(), 50);
+}
+
+// PWA: register service worker (#90), capture install prompt.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
+}
+let _deferredInstall = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  _deferredInstall = e;
+  document.body.classList.add("can-install");
+});
+window.addEventListener("appinstalled", () => {
+  _deferredInstall = null;
+  document.body.classList.remove("can-install");
+});
+window.installPrompt = async () => {
+  if (!_deferredInstall) return false;
+  _deferredInstall.prompt();
+  const { outcome } = await _deferredInstall.userChoice;
+  _deferredInstall = null;
+  return outcome === "accepted";
+};
+
 // Run recurring-deal scheduler on every load.
 try { runScheduler(); } catch (e) { console.warn("scheduler:", e); }
 
@@ -64,6 +123,7 @@ register("/timeline", () => timelineView());
 register("/automations", () => automationsView());
 register("/activity", () => activityView());
 register("/reports", () => reports());
+register("/reports/custom", () => customReportView());
 register("/tax", () => taxView());
 register("/templates", () => templatesView());
 register("/contracts", () => contractsView());

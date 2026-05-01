@@ -92,6 +92,18 @@ export function openDealForm(deal) {
   const notesUrl = input(d.notesUrl, "url", { placeholder: "https://" });
   const transactionId = input(d.transactionId, "text", { placeholder: "Bank/Stripe ref" });
   const notes = el("textarea", { class: "textarea", placeholder: "Notes" }, d.notes || "");
+  const baseCcy = (Settings.get().currency || "USD");
+  const dealCcy = selectEl(d.currency || baseCcy, ["USD", "EUR", "GBP", "CAD", "AUD", "JPY", "INR", "CHF", "BRL", "MXN", "SGD"].map((v) => ({ value: v, label: v })));
+  const fxRate = input(d.fxRate || "", "number", { step: "0.000001", min: "0", placeholder: `to ${baseCcy} (1.00 if same)` });
+  const fxNote = el("div", { class: "small muted" });
+  const refreshFx = () => {
+    if (dealCcy.value === baseCcy) { fxNote.textContent = "Base currency — FX not applied."; if (!fxRate.value) fxRate.value = "1"; return; }
+    const r = +fxRate.value || 0;
+    if (!r) fxNote.textContent = `Set the FX rate from 1 ${dealCcy.value} → ${baseCcy} on the day of the deal.`;
+    else fxNote.textContent = `Net at base: ${fmtMoney(((+fee.value || 0) * (1 - (+partnerFee.value || 0) / 100)) * r)}`;
+  };
+  dealCcy.addEventListener("change", refreshFx);
+  fxRate.addEventListener("input", refreshFx);
   const exclusivityFrom = input(d.exclusivityFrom || "", "date");
   const exclusivityTo = input(d.exclusivityTo || "", "date");
   const usageRightsUntil = input(d.usageRightsUntil || "", "date");
@@ -257,6 +269,9 @@ export function openDealForm(deal) {
     el("div", { class: "field" }, el("label", {}, "Paid?"), el("div", {}, paid)),
     field("Invoice #", invNumber),
     field("Invoice date", invDate),
+    field("Currency", dealCcy),
+    field(`FX rate (1 ${baseCcy === "USD" ? "deal-ccy" : baseCcy})`, fxRate),
+    el("div", { class: "field full small muted" }, fxNote),
     field("Payment terms", terms),
     field("Credit-note for", creditNoteOf),
     field("Invoice URL", invUrl, { full: true }),
@@ -319,6 +334,8 @@ export function openDealForm(deal) {
       notes: notes.value,
       terms: terms.value ? +terms.value : 0,
       creditNoteOf: creditNoteOf.value || "",
+      currency: dealCcy.value || baseCcy,
+      fxRate: dealCcy.value === baseCcy ? 1 : (+fxRate.value || 0),
       agentId: agent.value && agent.value !== "__new" ? agent.value : "",
       agentPct: +agentPct.value || 0,
       exclusivityFrom: exclusivityFrom.value,
@@ -372,13 +389,38 @@ export function openBillForm(bill) {
     { value: "yearly", label: "Yearly" },
     { value: "weekly", label: "Weekly" },
   ]);
-  const receipt = input(b.receiptUrl, "url", { placeholder: "https://" });
+  const receipt = input(b.receiptUrl, "url", { placeholder: "https:// or paste data URI" });
+
+  // Receipt OCR + camera capture (#11)
+  const cameraInput = el("input", { type: "file", accept: "image/*", capture: "environment", style: { display: "none" } });
+  const ocrStatus = el("span", { class: "small muted" });
+  cameraInput.addEventListener("change", async () => {
+    const f = cameraInput.files?.[0]; if (!f) return;
+    ocrStatus.textContent = "Reading receipt…";
+    try {
+      const { ocrImage, extractReceiptFields, fileToDataUrl } = await import("./ocr.js");
+      const dataUrl = await fileToDataUrl(f);
+      receipt.value = dataUrl;
+      refreshReceiptPreview();
+      const text = await ocrImage(f, (p) => { ocrStatus.textContent = `Reading receipt… ${(p * 100).toFixed(0)}%`; });
+      const fields = extractReceiptFields(text);
+      if (fields.vendor && !vendor.value) vendor.value = fields.vendor;
+      if (fields.amount && !amount.value) amount.value = fields.amount.toFixed(2);
+      if (fields.date && !date.value) date.value = fields.date;
+      ocrStatus.innerHTML = `<span style="color:var(--accent)">✓ Extracted${fields.vendor ? ` vendor "${fields.vendor}"` : ""}${fields.amount ? `, amount $${fields.amount.toFixed(2)}` : ""}${fields.date ? `, date ${fields.date}` : ""}.</span>`;
+    } catch (e) {
+      ocrStatus.innerHTML = `<span style="color:var(--danger)">OCR failed: ${e.message}</span>`;
+    }
+  });
+  const cameraBtn = el("button", { class: "btn sm", type: "button", onclick: () => cameraInput.click() }, "📷 Capture / OCR");
+
   const receiptPreview = el("div", { class: "small muted" });
   const refreshReceiptPreview = () => {
     receiptPreview.innerHTML = "";
-    if (receipt.value && /\.(png|jpe?g|gif|webp|heic)$/i.test(receipt.value)) {
-      receiptPreview.append(el("img", { src: receipt.value, style: { maxWidth: "180px", borderRadius: "6px", marginTop: "4px" }, loading: "lazy" }));
-    } else if (receipt.value) {
+    const v = receipt.value;
+    if (v && (/^data:image\//.test(v) || /\.(png|jpe?g|gif|webp|heic)$/i.test(v))) {
+      receiptPreview.append(el("img", { src: v, style: { maxWidth: "180px", borderRadius: "6px", marginTop: "4px" }, loading: "lazy" }));
+    } else if (v) {
       receiptPreview.append(el("a", { href: receipt.value, target: "_blank", rel: "noreferrer" }, "Open receipt ↗"));
     }
   };
@@ -410,6 +452,9 @@ export function openBillForm(bill) {
     field("Allocate to deal (COGS)", dealId, { full: true }),
     field("Tax status", taxStatus, { full: true }),
     field("Receipt URL", receipt, { full: true }),
+    el("div", { class: "field full" },
+      el("div", { class: "row", style: { gap: "8px" } }, cameraBtn, ocrStatus, cameraInput),
+    ),
     el("div", { class: "field full" }, receiptPreview),
     field("Notes", notes, { full: true }),
   );

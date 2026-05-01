@@ -48,21 +48,74 @@ const defaults = () => ({
   tips: [], // { id, platform, period: 'YYYY-MM', amount, supporters, notes }
   assets: [], // { id, name, category, purchaseDate, cost, life, notes } — depreciation
   csvMappings: [], // { id, name, columnMap, sample } — saved bank import mappings
+  salesTax: [], // { id, date, state, taxableSales, ratePct, taxCollected, paid, paidDate, notes }
+  reportPresets: [], // { id, name, dimensions, measures } — saved custom-report configs
 });
 
 let cache = null;
 const subscribers = new Set();
 
+// Encrypted-at-rest support (#70). When enabled, the localStorage blob is
+// "enc:v1:..." and we keep the in-memory state plain; writes re-encrypt.
+let _encrypted = false;
+let _encryptCb = null; // async function(jsonStr) -> ciphertext
+export function isVaultEncrypted() { return _encrypted; }
+export function enableVaultEncryption(encryptFn) { _encrypted = true; _encryptCb = encryptFn; write(); }
+export function disableVaultEncryption() { _encrypted = false; _encryptCb = null; write(); }
+
 function read() {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return defaults();
+    if (raw.startsWith("enc:v1:")) {
+      // Locked — we'll wait for unlockAndLoad to set the cache.
+      return defaults();
+    }
     const parsed = JSON.parse(raw);
     return migrate(parsed);
   } catch (e) {
     console.warn("Failed to parse store, resetting:", e);
     return defaults();
   }
+}
+
+export function rawIsEncrypted() {
+  const raw = localStorage.getItem(KEY);
+  return typeof raw === "string" && raw.startsWith("enc:v1:");
+}
+
+export async function unlockVaultAndLoad(passphrase) {
+  const raw = localStorage.getItem(KEY);
+  if (!raw || !raw.startsWith("enc:v1:")) throw new Error("Not encrypted");
+  const { unlock } = await import("./cryptoVault.js");
+  const plaintext = await unlock(passphrase, raw);
+  const data = JSON.parse(plaintext);
+  cache = migrate(data);
+  _encrypted = true;
+  const { encryptCurrent } = await import("./cryptoVault.js");
+  _encryptCb = encryptCurrent;
+  // notify subscribers so all views refresh with newly-loaded data.
+  subscribers.forEach((fn) => { try { fn(cache); } catch (e) { console.error(e); } });
+  return cache;
+}
+
+export async function enableEncryptionWithPassphrase(passphrase) {
+  const { enableWithPassphrase } = await import("./cryptoVault.js");
+  const plaintext = JSON.stringify(cache);
+  const blob = await enableWithPassphrase(passphrase, plaintext);
+  localStorage.setItem(KEY, blob);
+  _encrypted = true;
+  const { encryptCurrent } = await import("./cryptoVault.js");
+  _encryptCb = encryptCurrent;
+}
+
+export async function disableEncryption() {
+  _encrypted = false;
+  _encryptCb = null;
+  const { disable } = await import("./cryptoVault.js");
+  disable();
+  // Re-write as plaintext.
+  localStorage.setItem(KEY, JSON.stringify(cache));
 }
 
 function migrate(data) {
@@ -92,11 +145,19 @@ function migrate(data) {
     tips: data.tips || [],
     assets: data.assets || [],
     csvMappings: data.csvMappings || [],
+    salesTax: data.salesTax || [],
+    reportPresets: data.reportPresets || [],
   };
 }
 
 function write() {
-  localStorage.setItem(KEY, JSON.stringify(cache));
+  const plain = JSON.stringify(cache);
+  if (_encrypted && _encryptCb) {
+    // Encrypt asynchronously; UI is already updated from in-memory cache.
+    _encryptCb(plain).then((blob) => localStorage.setItem(KEY, blob)).catch((e) => console.warn("encrypt write failed:", e));
+  } else {
+    localStorage.setItem(KEY, plain);
+  }
   subscribers.forEach((fn) => {
     try { fn(cache); } catch (e) { console.error(e); }
   });
@@ -278,6 +339,17 @@ export const CsvMappings = {
   all: () => getState().csvMappings,
   save: (x) => upsertCollection("csvMappings", x),
   remove: (id) => removeFromCollection("csvMappings", id),
+};
+export const SalesTax = {
+  all: () => getState().salesTax,
+  get: (id) => getState().salesTax.find((x) => x.id === id),
+  save: (x) => upsertCollection("salesTax", x),
+  remove: (id) => removeFromCollection("salesTax", id),
+};
+export const ReportPresets = {
+  all: () => getState().reportPresets,
+  save: (x) => upsertCollection("reportPresets", x),
+  remove: (id) => removeFromCollection("reportPresets", id),
 };
 
 export const VendorRules = {
