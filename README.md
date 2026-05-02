@@ -1,10 +1,28 @@
 # RodBooks
 
-A QuickBooks-style accounting app built for influencers. Track brand deals, invoices, bills, and taxes — all in one place. Runs entirely in the browser, deploys to GitHub Pages, and works on desktop and mobile.
+**AI-first books for creators.** Paste a brand brief and get bullets. Paste a contract and get redlines. Let coach mode review your week and tell you what to do next. Snap a receipt photo and the bill fills itself in. RodBooks puts an AI co-pilot on top of a full QuickBooks-style ledger — brand deals, invoices, mileage, taxes, banking — so most of the bookkeeping runs itself.
+
+Runs entirely in the browser. Deploys to GitHub Pages. Desktop + mobile.
 
 ## Why
 
-Most influencer "books" live in a sprawling spreadsheet: brand, fee, contract link, brief, draft due, post date, invoice, paid/unpaid, partner fee %, etc. RodBooks turns that workflow into a real app:
+Creator-business books live in a sprawling spreadsheet: brand, fee, contract link, brief, draft due, post date, invoice, paid/unpaid, partner fee %, deliverables, exclusivity windows. RodBooks reframes that as an AI-co-piloted app:
+
+**AI surfaces (need an LLM key in `Settings → Connect`):**
+- **Brief summarizer** — paste a brand brief; get the brand+deliverable, key dates, mandatory talking points, exclusivity/usage/kill-fee, and open questions to clarify.
+- **AI deal grader** — paste a deal; get a letter grade (A–F), 5 specific red flags + redlines, and a one-line next-round ask, benchmarked against your history.
+- **AI contract redline** — paste a contract; get a risk score and 5 redlined bullet flags. Heuristic regex flagger runs even without a key.
+- **Coach mode** — looks at your last 7 days (cash collected, new deals, overdue invoices, top brands, concentration) and gives 5 specific next-week moves.
+
+**Always-on AI helpers:**
+- **Receipt OCR** — snap a photo, `tesseract.js` extracts vendor / amount / date and pre-fills the bill.
+- **Natural-language quick add** — `n` then `Lumira AI $1500 video due May 15 paid` → parsed deal.
+- **Sponsorship inbox** — paste a brand outreach email; we extract brand, fee, timing and queue it as a draft lead.
+- **Smart fee suggestion** — when you pick a brand+service, the form surfaces median accepted fee from your history.
+- **Vendor → category memory** — bills auto-categorize after a few examples.
+- **Anomaly detection + smart paid-date inference** — automation engine flags spikes and matches deposits to invoices.
+
+Built on a full QuickBooks-style ledger:
 
 - **Brand Deals** — the heart of the app. Fields match what creators actually track (service vs. post date, draft due, contract/brief/draft URLs, partner-fee %, paid status). Each deal has a visual lifecycle tracker: Contract → Brief → Draft due → Draft sent → Service → Posted → Invoiced → Paid.
 - **Tableau-style Dashboard** — sticky filter bar (year / service / brand / status / month) cross-filters every chart. KPIs with year-over-year comparison, 24-month income vs. expenses (click a bar to drill into a month), pipeline funnel, brand-mix donut (click a slice to drill into the brand page), service mix, year×month heatmap, cycle-time histogram, top brands and top deals.

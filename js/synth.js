@@ -44,7 +44,7 @@ const PAY_METHODS = [
   "Brex eft", "Stripe", "ACH", "limelight", "partnerstack",
   "Wise", "Wire", "Mercury", "Woo", "Airwallex"
 ];
-const POSITIONS = ["Partnerships Manager", "Influencer Lead", "Marketing Director", "Brand Partner", "Growth Lead"];
+const POSITIONS = ["Partnerships Manager", "Creator Partnerships Lead", "Marketing Director", "Brand Partner", "Growth Lead"];
 const FIRSTS = ["Alex", "Sam", "Jordan", "Riley", "Morgan", "Avery", "Casey", "Drew", "Quinn", "Reese", "Taylor", "Skylar", "Cameron", "Hayden", "Parker", "Sage", "Rowan", "Ellis"];
 const LASTS = ["Chen", "Patel", "Rivera", "Okafor", "Nguyen", "Kim", "Sato", "Hassan", "Cohen", "Ortiz", "Park", "Singh", "Mendez", "Lopez", "Walker", "Khan", "Diaz", "Reyes"];
 

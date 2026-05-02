@@ -31,6 +31,30 @@ const COMMANDS = [
   { label: "Toggle theme", action: () => import("./theme.js").then((m) => m.toggleTheme()), kind: "Action" },
   { label: "Toggle density (comfortable / compact)", action: () => toggleDensity(), kind: "Action" },
   { label: "Show keyboard shortcuts", action: () => openHelp(), kind: "Action" },
+  { label: "Summarize brief (AI)", action: async () => { const { openBriefSummarizer } = await import("./aiActions.js"); openBriefSummarizer(); }, kind: "AI" },
+  { label: "Grade a deal (AI)", action: async () => {
+      const { openDealGrader } = await import("./aiActions.js");
+      const { openModal } = await import("./ui.js");
+      const { Deals } = await import("./store.js");
+      const recent = Deals.all().slice().sort((a, b) => (b.serviceDate || b.paidDate || "").localeCompare(a.serviceDate || a.paidDate || "")).slice(0, 30);
+      const search = el("input", { class: "input", placeholder: "Filter by brand…", autofocus: true });
+      const list = el("div", { class: "list", style: { maxHeight: "50vh", overflow: "auto" } });
+      let m;
+      const render = () => {
+        list.innerHTML = "";
+        const q = (search.value || "").toLowerCase();
+        const items = recent.filter((d) => !q || (d.company || "").toLowerCase().includes(q));
+        if (!items.length) { list.append(el("div", { class: "empty small" }, "No matches.")); return; }
+        items.forEach((d) => list.append(el("div", { class: "list-row", style: { cursor: "pointer" }, onclick: () => { m.close(); openDealGrader(d); } },
+          el("div", { style: { flex: 1 } }, el("strong", {}, d.company || "Untitled"), el("div", { class: "small muted" }, `${d.svc || "—"} · $${d.fee || 0}`)),
+          el("span", { class: "pill gray" }, d.paid ? "paid" : "open"),
+        )));
+      };
+      search.addEventListener("input", render);
+      render();
+      m = openModal({ title: "Pick a deal to grade", body: el("div", { class: "stack" }, search, list) });
+    }, kind: "AI" },
+  { label: "Coach me (AI)", action: async () => { const { openCoachMode } = await import("./aiActions.js"); openCoachMode(); }, kind: "AI" },
   { label: "Install RodBooks (add to home screen)", action: async () => {
       const { toast } = await import("./ui.js");
       if (!window.installPrompt) { toast("Install prompt not available — open the browser menu.", "warn", 4000); return; }
