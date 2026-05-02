@@ -30,7 +30,6 @@ import bookingView from "./views/booking.js";
 import connectView from "./views/connect.js";
 import mediaKitView from "./views/mediakit.js";
 import inboxView from "./views/inbox.js";
-import { runScheduler } from "./scheduler.js";
 import contractsView from "./views/contracts.js";
 import { runScheduler } from "./scheduler.js";
 

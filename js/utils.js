@@ -1,7 +1,24 @@
-// Formatters and helpers
+/**
+ * @file Format helpers, DOM DSL (`el`), date math, business helpers
+ * (net fee, deal status, brand health), and a vanilla CSV parser.
+ *
+ * Imports `Settings` so currency/locale-aware formatters resolve from
+ * the active profile's settings on each call.
+ *
+ * @module utils
+ */
 
 import { Settings } from "./store.js";
 
+/**
+ * Format a number as a localised currency string. Currency code is taken
+ * from `Settings.get().currency` (default `"USD"`). When `opts.cents` is
+ * unset, integers render with no decimals; non-integers with two.
+ *
+ * @param {number|string} n Numeric amount.
+ * @param {{cents?: number}} [opts] Override the minimum fraction digits.
+ * @returns {string}
+ */
 export function fmtMoney(n, opts = {}) {
   const v = Number(n) || 0;
   const cur = (Settings.get().currency) || "USD";
@@ -13,6 +30,11 @@ export function fmtMoney(n, opts = {}) {
   });
 }
 
+/**
+ * Compact currency: $1.2k / $3.4M for axis labels and tight KPIs.
+ * @param {number} n
+ * @returns {string}
+ */
 export function fmtMoneyShort(n) {
   const v = Number(n) || 0;
   const a = Math.abs(v);
@@ -21,6 +43,12 @@ export function fmtMoneyShort(n) {
   return `$${v.toFixed(0)}`;
 }
 
+/**
+ * Format an ISO date string (or `Date`) as a localised long-ish date.
+ * Returns "" for falsy / unparseable input.
+ * @param {string|Date} s
+ * @returns {string}
+ */
 export function fmtDate(s) {
   if (!s) return "";
   const d = typeof s === "string" ? parseDate(s) : s;
@@ -35,6 +63,12 @@ export function fmtDateShort(s) {
   return d.toLocaleDateString(undefined, { month: "numeric", day: "numeric" });
 }
 
+/**
+ * Parse a date string into a `Date`. Prefers ISO `YYYY-MM-DD`; falls back
+ * to `new Date(s)`. Returns `null` for falsy / unparseable input.
+ * @param {string} s
+ * @returns {Date|null}
+ */
 export function parseDate(s) {
   if (!s) return null;
   // ISO yyyy-mm-dd preferred
@@ -78,6 +112,13 @@ export function serviceMeta(svc) {
 }
 export const SERVICE_OPTIONS = Object.entries(SERVICE_COLORS).map(([key, v]) => ({ key, ...v }));
 
+/**
+ * Derive a status pill for a deal based on which fields are populated.
+ * Returns `{ label, cls }` where `cls` is a `.pill .green/.amber/.red/.blue/...`
+ * variant. Order: paid → invoiced → draft → in-progress → signed → pending.
+ * @param {object} d Deal record.
+ * @returns {{label: string, cls: string}}
+ */
 export function dealStatus(d) {
   if (d.paid) return { label: "Paid", cls: "green" };
   if (d.invoiceDate || d.invoiceUrl || d.invoiceNumber) return { label: "Invoiced", cls: "blue" };
@@ -87,6 +128,13 @@ export function dealStatus(d) {
   return { label: "Pending", cls: "gray" };
 }
 
+/**
+ * Effective net fee for a deal. If `paidAmount` is set, uses that.
+ * Otherwise applies `partnerFeePct` discount to `fee`. Used for KPIs,
+ * reports, and pivot tables across the app.
+ * @param {object} d Deal record (`fee`, `partnerFeePct`, `paidAmount`).
+ * @returns {number}
+ */
 export function netFee(d) {
   const fee = Number(d.fee) || 0;
   const pct = Number(d.partnerFeePct) || 0;
@@ -95,6 +143,12 @@ export function netFee(d) {
   return fee;
 }
 
+/**
+ * Parse a CSV string into a 2D array of rows × cells. Handles quoted fields
+ * with embedded commas, double-quote escaping, and `\r\n` line endings.
+ * @param {string} text
+ * @returns {string[][]}
+ */
 export function csvFromString(text) {
   // simple CSV parser supporting quoted fields
   const rows = [];
@@ -121,12 +175,44 @@ export function debounce(fn, ms = 200) {
   let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
 
+/**
+ * Escape a string for safe insertion as text content in HTML. Encodes the
+ * five XML-significant characters. Use this whenever interpolating untrusted
+ * content into a template-literal HTML string. (Prefer `el()` + textContent
+ * for non-template DOM construction.)
+ *
+ * Also exported as `escapeHtml` for ergonomics — the historical alias used
+ * by `digest.js` and `views/tax.js`.
+ *
+ * @param {*} s
+ * @returns {string}
+ */
 export function escHtml(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
 }
+export { escHtml as escapeHtml };
 
+/**
+ * Tiny DOM DSL. Build an element with attributes and children in one call.
+ *
+ * - `attrs.class`: CSS class string.
+ * - `attrs.html`: raw `innerHTML` (caller is responsible for escaping).
+ * - `attrs.style`: object of CSS properties; values must be valid CSS strings
+ *   (e.g. `"6px"`, not the bare number `6`).
+ * - `attrs.on*`: any key starting with `on` whose value is a function is
+ *   bound via `addEventListener` (lower-cased event name).
+ * - Any other entry becomes an attribute via `setAttribute`. `null`/`false`
+ *   skips the attribute entirely.
+ * - `children`: nodes are appended as-is; everything else becomes a text node.
+ *   Arrays are flattened; `null` / `false` / `undefined` are skipped.
+ *
+ * @param {string} tag HTML tag name.
+ * @param {object} [attrs]
+ * @param {...(Node|string|number|boolean|null|undefined|Array)} children
+ * @returns {HTMLElement}
+ */
 export function el(tag, attrs = {}, ...children) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
@@ -147,6 +233,19 @@ export function el(tag, attrs = {}, ...children) {
 // Parse search operators like:
 //   brand:Descript paid:no >1000 svc:v
 // Returns { text, filters: { brand?, paid?, svc?, min?, max?, year? } }
+/**
+ * Parse the deal-list search box into free-text + structured filters.
+ * Recognised operators (case-insensitive):
+ * - `brand:NAME` / `company:NAME` → contact-name substring filter
+ * - `paid:yes` / `paid:no` / `unpaid` → paid boolean
+ * - `svc:v` / `type:p` → service-type code
+ * - `year:2025` → year prefix on dates
+ * - `method:stripe` → payment method substring
+ * - `>1000` / `<500` → net-fee range
+ * Free tokens are joined back into `text`.
+ * @param {string} q
+ * @returns {{text: string, filters: object}}
+ */
 export function parseSearchOperators(q) {
   const out = { text: "", filters: {} };
   if (!q) return out;
@@ -266,6 +365,12 @@ export function addDays(iso, n) {
 }
 
 // Compute due date from invoiceDate + terms (net days). Returns "" if either missing.
+/**
+ * Compute due date from `invoiceDate + terms (net days)`. Returns "" if either
+ * is missing.
+ * @param {object} d Deal-like with `invoiceDate` and `terms`.
+ * @returns {string} ISO date or "".
+ */
 export function dueDate(d) {
   if (!d.invoiceDate) return "";
   const terms = Number(d.terms || 0);
@@ -281,6 +386,13 @@ export function daysPastDue(d) {
 }
 
 // Late fee accrued (compounds monthly if rate > 0).
+/**
+ * Accrued late fee for a deal, compounding monthly at the given rate. Returns 0
+ * if not yet overdue, no rate set, or the deal is paid.
+ * @param {object} d Deal record.
+ * @param {number} [ratePctPerMonth=0] e.g. 1.5 for 1.5%/mo.
+ * @returns {number}
+ */
 export function lateFee(d, ratePctPerMonth = 0) {
   const dpd = daysPastDue(d);
   if (!dpd || dpd <= 0 || !ratePctPerMonth) return 0;

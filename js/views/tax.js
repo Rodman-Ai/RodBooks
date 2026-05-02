@@ -1,6 +1,6 @@
 // Tax workbench: Schedule C box totals, SE tax, state tax, quarterly payment log, 1099 payer tracker.
 
-import { el, fmtMoney, fmtDate, fmtDateShort, todayISO, netFee, parseDate } from "../utils.js";
+import { el, fmtMoney, fmtDate, fmtDateShort, todayISO, netFee, parseDate, escapeHtml } from "../utils.js";
 import { Deals, Bills, Settings, TaxPayments, Assets, SalesTax, subscribe, downloadFile, toCSV } from "../store.js";
 import { openModal, toast, confirmDialog } from "../ui.js";
 
@@ -623,10 +623,6 @@ function generate1099Pdfs(owedForms, year) {
     jsPDF: { unit: "mm", format: "letter", orientation: "portrait" },
   }).from(wrapper).save();
   toast(`Generating ${owedForms.length} 1099 summar${owedForms.length === 1 ? "y" : "ies"}…`);
-}
-
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 // Year-end tax PDF (#39). Single printable doc with P&L, Schedule C totals,
