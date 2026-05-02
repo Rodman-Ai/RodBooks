@@ -311,8 +311,6 @@ export default function dashboard() {
     const forecastCard = forecastProgress(allDeals, allBills);
     // ---- Cash-runway alert (#29) ----
     const runwayCard = cashRunwayCard(allDeals, allBills, settings);
-    // ---- Cash runway (#29) ----
-    const runwayCard = cashRunwayCard(allDeals, allBills, settings);
     // ---- Concentration over time (#7) ----
     const concentrationCard = concentrationOverTimeCard(allDeals);
     // ---- Service mix evolution (#73) ----
@@ -329,7 +327,6 @@ export default function dashboard() {
       kpis,
       propStrip,
       el("div", { class: "dash-grid" }, goalCard, forecastCard),
-      runwayCard ? runwayCard : null,
       el("div", { class: "dash-grid" }, runwayCard, concentrationCard),
       trendCard,
       el("div", { class: "dash-grid" }, funnelCard, brandCard),
