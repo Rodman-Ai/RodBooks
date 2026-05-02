@@ -1,11 +1,12 @@
-// Weekly digest PDF (#80). Renders a printable summary of the past 7 days.
+/**
+ * @file Weekly digest (#80). Renders a printable HTML summary of the past
+ * 7 days; previewable in a new tab or downloadable as PDF via html2pdf.
+ *
+ * @module digest
+ */
 
 import { Deals, Bills, Settings, TaxPayments } from "./store.js";
-import { fmtMoney, fmtDate, netFee, brandWarmth } from "./utils.js";
-
-function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
+import { fmtMoney, fmtDate, netFee, brandWarmth, escapeHtml } from "./utils.js";
 
 export function buildDigestHtml() {
   const since = Date.now() - 7 * 86400000;

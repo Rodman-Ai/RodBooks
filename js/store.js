@@ -1,5 +1,19 @@
-// LocalStorage-backed store. Single source of truth.
-// All data stays on-device. Export/Import via JSON or CSV.
+/**
+ * @file LocalStorage-backed store — the single source of truth for every
+ * collection in RodBooks. All views read via `getState()` + `subscribe()`,
+ * and write via the per-collection APIs (`Deals.save`, `Bills.remove`, etc.)
+ * which fan out to subscribers and append to the activity log.
+ *
+ * **Multi-profile** (#69): each profile keys its own blob in localStorage via
+ * `dataKeyFor(activeId)`. Switching profiles reloads the page so the cache
+ * is rebuilt fresh.
+ *
+ * **Encryption-at-rest** (#70): when enabled, writes pass through
+ * `cryptoVault.encryptCurrent()` and the localStorage blob is prefixed
+ * `enc:v1:`. On boot, `rawIsEncrypted()` triggers the unlock screen.
+ *
+ * @module store
+ */
 
 import { dataKeyFor, getActiveProfileId } from "./profiles.js";
 
@@ -93,6 +107,13 @@ export function rawIsEncrypted() {
   return typeof raw === "string" && raw.startsWith("enc:v1:");
 }
 
+/**
+ * Decrypt the on-disk blob with the given passphrase, install the plaintext
+ * as the in-memory cache, and broadcast to subscribers. Throws on wrong
+ * passphrase. Used by the boot-time vault-unlock screen in `app.js`.
+ * @param {string} passphrase
+ * @returns {Promise<object>} the decrypted state
+ */
 export async function unlockVaultAndLoad(passphrase) {
   const raw = localStorage.getItem(KEY());
   if (!raw || !raw.startsWith("enc:v1:")) throw new Error("Not encrypted");
@@ -108,6 +129,12 @@ export async function unlockVaultAndLoad(passphrase) {
   return cache;
 }
 
+/**
+ * Turn on encryption-at-rest using `passphrase`. Re-encrypts the current
+ * cache and writes back to localStorage. There is **no recovery** if the
+ * passphrase is later forgotten.
+ * @param {string} passphrase
+ */
 export async function enableEncryptionWithPassphrase(passphrase) {
   const { enableWithPassphrase } = await import("./cryptoVault.js");
   const plaintext = JSON.stringify(cache);
@@ -118,6 +145,10 @@ export async function enableEncryptionWithPassphrase(passphrase) {
   _encryptCb = encryptCurrent;
 }
 
+/**
+ * Turn off encryption. Discards the in-memory key and writes the cache back
+ * as plaintext.
+ */
 export async function disableEncryption() {
   _encrypted = false;
   _encryptCb = null;
@@ -172,19 +203,39 @@ function write() {
   });
 }
 
+/**
+ * Get the current in-memory state object. Lazily reads from localStorage on
+ * first access. Treat the returned object as **mutable but synced** —
+ * mutations only persist after a `write()` (which the per-collection APIs
+ * do for you). Don't deeply mutate from views; use `Deals.save` etc.
+ * @returns {object}
+ */
 export function getState() {
   if (!cache) cache = read();
   return cache;
 }
 
-// Reset the cache (e.g., when switching profiles).
+/** Reset the in-memory cache. Used when switching profiles to force re-read. */
 export function resetCache() { cache = null; }
 
+/**
+ * Subscribe to state writes. The callback fires after every successful save
+ * with the current state. Returns an unsubscribe function — call it from a
+ * view's `unmount` to avoid leaks.
+ * @param {(state: object) => void} fn
+ * @returns {() => void} unsubscribe
+ */
 export function subscribe(fn) {
   subscribers.add(fn);
   return () => subscribers.delete(fn);
 }
 
+/**
+ * Random-ish 12-char id used for every new record. Combines a short Math.random
+ * base-36 chunk with a Date.now base-36 suffix. Not cryptographically strong;
+ * collisions are vanishingly unlikely at expected dataset sizes (≤500k records).
+ * @returns {string}
+ */
 export function uid() {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 }
@@ -232,18 +283,35 @@ function removeFromCollection(name, id) {
   write();
 }
 
+/**
+ * Brand-deal CRUD. `save({...item, id?})` is upsert (id → update, no id → insert).
+ * Every save fans out to subscribers and appends to the activity log.
+ * @namespace Deals
+ */
 export const Deals = {
   all: () => getState().deals,
   get: (id) => getState().deals.find((d) => d.id === id),
   save: (d) => upsertCollection("deals", d),
   remove: (id) => removeFromCollection("deals", id),
 };
+/**
+ * Bill / expense CRUD. Saving a bill also calls `VendorRules.learn()` so the
+ * vendor → category mapping is remembered for the next bill.
+ * @namespace Bills
+ */
 export const Bills = {
   all: () => getState().bills,
   get: (id) => getState().bills.find((b) => b.id === id),
   save: (b) => upsertCollection("bills", b),
   remove: (id) => removeFromCollection("bills", id),
 };
+/**
+ * Contact (brand / agency / vendor / partner / personal) CRUD.
+ * Carries `defaultRates` (per-service brand rate card), `audience` snapshots,
+ * `testimonials`, `emailLog`, and the `confidential` flag (excludes from
+ * media-kit / share-bundle).
+ * @namespace Contacts
+ */
 export const Contacts = {
   all: () => getState().contacts,
   get: (id) => getState().contacts.find((c) => c.id === id),
@@ -418,6 +486,12 @@ export const Snapshots = {
   },
 };
 
+/**
+ * Settings accessor. `Settings.get()` returns the merged settings object;
+ * `Settings.update(patch)` does a shallow merge and persists.
+ * `nextInvoiceNumber()` increments + persists in one call.
+ * @namespace Settings
+ */
 export const Settings = {
   get: () => getState().settings,
   update(patch) {

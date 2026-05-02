@@ -1,14 +1,40 @@
-// Minimal in-browser LLM client. Reads provider + API key + model from
-// Settings.connect.llm. Supports anthropic / openai shapes. Calls go directly
-// browser → provider — keep that in mind, especially for org keys.
+/**
+ * @file Minimal browser-side LLM client. Reads provider, API key, and model
+ * from `Settings.connect.llm` and dispatches to the right provider's HTTP
+ * shape. Calls go directly from the browser to the provider — keys are
+ * never sent anywhere else, but this also means the user's key is exposed
+ * to whatever JS is running in the page (acceptable for a static demo).
+ *
+ * Supported providers:
+ * - **anthropic** (default; uses `anthropic-dangerous-direct-browser-access`)
+ * - **openai** (Chat Completions API)
+ * - **google** (Gemini)
+ * - **ollama** (local at `http://localhost:11434`)
+ *
+ * @module llm
+ */
 
 import { Settings } from "./store.js";
 
+/**
+ * @returns {boolean} true if `Settings.connect.llm` has provider, apiKey, and model.
+ */
 export function llmIsConnected() {
   const c = (Settings.get().connect || {}).llm || {};
   return !!(c.apiKey && c.provider && c.model);
 }
 
+/**
+ * Run a single user-turn generation against the configured provider.
+ * Returns the assistant's text response.
+ *
+ * @param {object} args
+ * @param {string} [args.system] System prompt (provider-supported).
+ * @param {string} args.user     User prompt body.
+ * @param {number} [args.maxTokens=800]
+ * @returns {Promise<string>}
+ * @throws {Error} On missing key, non-2xx response, or unknown provider.
+ */
 export async function llmGenerate({ system, user, maxTokens = 800 }) {
   const c = (Settings.get().connect || {}).llm || {};
   if (!c.apiKey) throw new Error("No LLM API key configured. Visit /connect to add one.");

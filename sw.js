@@ -1,5 +1,5 @@
 // RodBooks service worker — cache-first for static shell, network-first for everything else.
-const CACHE = "rodbooks-shell-v1";
+const CACHE = "rodbooks-shell-v2";
 const SHELL = [
   "./",
   "./index.html",

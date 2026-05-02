@@ -1,9 +1,24 @@
-// Tiny hash router. Routes register a handler that returns a DOM node or string.
-// Supports `#/path?key=value` query strings — handlers receive { params, query }.
+/**
+ * @file Tiny hash router (~80 lines). Routes register a handler that returns
+ * a DOM node, a `{ node, unmount }` object, or a string of HTML. Supports
+ * URL parameters (`/deals/:id`) and query strings (`?paid=no&svc=v`).
+ *
+ * @module router
+ */
 
 const routes = [];
 let mounted = null;
 
+/**
+ * Register a route. Path syntax: literal `/` segments + `:param` placeholders.
+ * The handler is called with `(params, ctx)` where `ctx.query` is a parsed
+ * `{key: value}` object from the hash query string.
+ *
+ * @param {string} path e.g. `"/deals"` or `"/deals/:id"`.
+ * @param {(params: object, ctx: {outlet: HTMLElement, query: object}) =>
+ *          (HTMLElement|string|{node?: any, unmount?: () => void}|Promise<any>)} handler
+ * @param {object} [opts] Reserved for future options.
+ */
 export function register(path, handler, opts = {}) {
   // path can include :params, e.g. /deals/:id
   const re = new RegExp("^" + path.replace(/:[a-zA-Z]+/g, "([^/]+)") + "/?$");
@@ -22,6 +37,13 @@ function parseHash() {
 }
 
 let suppressNext = false;
+/**
+ * Update query parameters on the current hash without re-rendering the route.
+ * Subscribers can listen to the synthetic `rb:query` event for changes.
+ * Pass `null`/`""` for a key to remove it.
+ * @param {Record<string, string|null>} patch
+ * @param {{replace?: boolean}} [opts] Use replaceState vs pushState.
+ */
 export function setQuery(patch, { replace = false } = {}) {
   // Update query params on the current hash without re-rendering the route.
   const { path, query } = parseHash();
@@ -40,10 +62,16 @@ export function setQuery(patch, { replace = false } = {}) {
   window.dispatchEvent(new CustomEvent("rb:query"));
 }
 
+/** @returns {Record<string,string>} Parsed query string from the current hash. */
 export function getQuery() {
   return parseHash().query;
 }
 
+/**
+ * Boot the router. Renders the matching route into `outlet` on every
+ * `hashchange`. `onChange({ path, query, route })` fires after each render.
+ * @param {{outlet: HTMLElement, onChange?: (info: {path: string, query: object, route: object}) => void}} cfg
+ */
 export function start({ outlet, onChange }) {
   async function render() {
     if (suppressNext) { suppressNext = false; return; }
@@ -72,6 +100,11 @@ export function start({ outlet, onChange }) {
   render();
 }
 
+/**
+ * Navigate. If the path equals the current hash, force a re-render.
+ * Accepts paths with or without the leading `#`.
+ * @param {string} path
+ */
 export function go(path) {
   if (!path.startsWith("#")) path = "#" + path;
   if (location.hash === path) {

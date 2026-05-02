@@ -1,6 +1,19 @@
-// LLM-backed actions (#85 brief summarizer, #86 deal grader, #89 coach mode).
-// Each calls js/llm.js with a tuned system prompt. UI surfaces the result
-// in a modal; copy-to-clipboard is offered.
+/**
+ * @file LLM-backed creator-business actions. All three openers mount a
+ * modal; if the LLM isn't connected they show a "not connected" card with
+ * a deep-link to `/connect`.
+ *
+ * - **Brief summarizer (#85)** — paste a brand brief, get key bullets.
+ * - **Deal grader (#86)** — assemble a deal's terms + history of similar
+ *   service-type deals, get a letter grade + redlines.
+ * - **Coach mode (#89)** — 7-day stats → 5 actionable next-week moves.
+ *
+ * Loaded lazily by `views/dashboard.js` (AI co-pilot strip),
+ * `views/deals.js` (deal detail), `views/reports.js` (Coach mode), and
+ * `js/palette.js` (palette commands).
+ *
+ * @module aiActions
+ */
 
 import { el } from "./utils.js";
 import { llmIsConnected, llmGenerate } from "./llm.js";
@@ -43,6 +56,13 @@ function renderError(e) {
 }
 
 // ---- #85 Brief summarizer ----
+/**
+ * Open the brief-summarizer modal. The LLM extracts brand+deliverable, key
+ * dates, mandatory talking points, exclusivity / usage / kill-fee terms,
+ * and open questions to clarify back to the brand.
+ * @param {string} [prefillText=""] Optionally pre-fill the textarea (e.g. with
+ *   the deal's notes when invoked from the deal detail page).
+ */
 export function openBriefSummarizer(prefillText = "") {
   const ta = el("textarea", { class: "textarea", style: { minHeight: "200px", fontFamily: "ui-monospace, Menlo, monospace", fontSize: "12px" }, placeholder: "Paste the brand brief here…" }, prefillText);
   const out = el("div", { style: { marginTop: 12 } });
@@ -77,6 +97,13 @@ export function openBriefSummarizer(prefillText = "") {
 }
 
 // ---- #86 AI deal grader ----
+/**
+ * Open the deal-grader modal for a specific deal. Composes a structured
+ * summary of the deal's terms + a list of historical deals with the same
+ * service type, then asks the LLM for a letter grade, up to 5 redlined
+ * red flags, and a one-sentence next-round ask.
+ * @param {object} deal
+ */
 export function openDealGrader(deal) {
   const out = el("div", { style: { marginTop: 12 } });
   const summary = `Brand: ${deal.company || "—"}
@@ -129,6 +156,12 @@ Notes: ${deal.notes || "(none)"}`;
 }
 
 // ---- #89 Coach mode ----
+/**
+ * Open coach mode. Computes 7-day stats (cash collected, new deals, overdue
+ * invoices, top-brand share) and asks the LLM for 5 specific, actionable
+ * suggestions for next week. Mixes pricing, follow-up, diversification,
+ * expense, and retainer tactics by design.
+ */
 export function openCoachMode() {
   const settings = Settings.get();
   const since = Date.now() - 7 * 86400000;
