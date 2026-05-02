@@ -1,7 +1,7 @@
 {
   "name": "RodBooks",
   "short_name": "RodBooks",
-  "description": "Books for influencers — track brand deals, invoices, and expenses.",
+  "description": "AI-first books for creators — brief summarizer, deal grader, AI contract redline, coach mode, OCR, NL quick-add.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

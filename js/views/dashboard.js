@@ -318,10 +318,14 @@ export default function dashboard() {
     // ---- Service mix evolution (#73) ----
     const svcEvoCard = serviceMixEvolutionCard(allDeals);
 
+    // ---- AI co-pilot strip (always above the fold) ----
+    const aiStrip = aiCoPilotStrip();
+
     // ---- Compose ----
     node.innerHTML = "";
     node.append(
       filterBar,
+      aiStrip,
       kpis,
       propStrip,
       el("div", { class: "dash-grid" }, goalCard, forecastCard),
@@ -433,6 +437,82 @@ export default function dashboard() {
   const unsub = subscribe(render);
   render();
   return { node, unmount: () => { unsub(); charts.forEach((c) => { try { c.destroy(); } catch {} }); } };
+}
+
+function aiCoPilotStrip() {
+  // Lazy import — avoids loading aiActions / llm modules unless the user opens
+  // the strip's actions. The CTA itself only checks llmIsConnected synchronously
+  // by reading from settings.connect.llm.
+  const llm = (Settings.get().connect || {}).llm || {};
+  const connected = !!(llm.apiKey && llm.provider && llm.model);
+
+  if (!connected) {
+    return el("div", { class: "card", style: { borderLeft: "3px solid var(--accent)", marginBottom: "14px" } },
+      el("div", { class: "spread" },
+        el("div", {},
+          el("strong", {}, "Turn on the AI co-pilot"),
+          el("div", { class: "small muted", style: { marginTop: 4 } },
+            "Add an LLM key to unlock brief summarizer, deal grader, contract redline, and coach mode."),
+        ),
+        el("a", { class: "btn primary", href: "#/connect" }, "Connect AI →"),
+      ),
+    );
+  }
+
+  const action = (label, onClick) => el("button", { class: "btn", onclick: onClick }, label);
+
+  return el("div", { class: "card", style: { borderLeft: "3px solid var(--accent)", marginBottom: "14px" } },
+    el("div", { class: "spread", style: { flexWrap: "wrap", gap: "10px" } },
+      el("div", {},
+        el("strong", {}, "AI co-pilot"),
+        el("div", { class: "small muted", style: { marginTop: 4 } }, "One-tap into the AI tools — they read your books."),
+      ),
+      el("div", { class: "row", style: { flexWrap: "wrap", gap: "6px" } },
+        action("Summarize a brief", async () => {
+          const { openBriefSummarizer } = await import("../aiActions.js");
+          openBriefSummarizer();
+        }),
+        action("Grade a deal", async () => {
+          const { openDealGrader } = await import("../aiActions.js");
+          openDealPicker((deal) => openDealGrader(deal));
+        }),
+        action("Coach me", async () => {
+          const { openCoachMode } = await import("../aiActions.js");
+          openCoachMode();
+        }),
+        action("AI redline a contract", async () => {
+          const { go } = await import("../router.js");
+          go("/contracts");
+        }),
+      ),
+    ),
+  );
+}
+
+// Simple modal that lets the user pick a recent deal to grade.
+async function openDealPicker(onPick) {
+  const { openModal } = await import("../ui.js");
+  const recent = Deals.all().slice().sort((a, b) => (b.serviceDate || b.paidDate || "").localeCompare(a.serviceDate || a.paidDate || "")).slice(0, 30);
+  const search = el("input", { class: "input", placeholder: "Filter by brand…", autofocus: true });
+  const list = el("div", { class: "list", style: { maxHeight: "50vh", overflow: "auto" } });
+  const renderList = () => {
+    list.innerHTML = "";
+    const q = (search.value || "").toLowerCase();
+    const filtered = recent.filter((d) => !q || (d.company || "").toLowerCase().includes(q));
+    if (!filtered.length) { list.append(el("div", { class: "empty small" }, "No matches.")); return; }
+    filtered.forEach((d) => {
+      list.append(el("div", { class: "list-row", style: { cursor: "pointer" }, onclick: () => { m.close(); onPick(d); } },
+        el("div", { style: { flex: 1 } },
+          el("strong", {}, d.company || "Untitled"),
+          el("div", { class: "small muted" }, `${d.svc || "—"} · ${fmtMoney(d.fee || 0)} · ${d.serviceDate || "—"}`),
+        ),
+        el("span", { class: "pill gray" }, d.paid ? "paid" : "open"),
+      ));
+    });
+  };
+  search.addEventListener("input", renderList);
+  renderList();
+  const m = openModal({ title: "Pick a deal to grade", body: el("div", { class: "stack" }, search, list) });
 }
 
 function downloadChart(canvasId, name) {

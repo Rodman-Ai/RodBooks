@@ -232,7 +232,7 @@ export default function settings() {
       el("div", { class: "card" },
         el("h3", {}, "About"),
         el("div", { class: "small muted" },
-          "RodBooks is a local-first accounting clone built for influencers. Your data lives in your browser; export JSON regularly for backups. Use the Print action on any invoice to save as PDF.",
+          "RodBooks is an AI-first creator-business app. The QuickBooks-style books (brand deals, invoices, mileage, taxes, banking) are wired to the AI tools — brief summarizer, deal grader, contract redline, coach mode — so most of the work runs itself. Local-first; data stays in your browser. Export JSON for backups; print or save invoices as PDF.",
         ),
       ),
     );
