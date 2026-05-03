@@ -34,7 +34,11 @@ import contractsView from "./views/contracts.js";
 import { runScheduler } from "./scheduler.js";
 
 // First-run: if there's no data at all, offer sample data automatically (once).
+// CRITICAL: bail when the vault is encrypted. read() returns defaults() for an
+// `enc:v1:` blob until the user unlocks it; without this guard, firstRun would
+// see "empty" data and overwrite the encrypted blob with sample data.
 (async function firstRun() {
+  if (rawIsEncrypted()) return;
   const s = getState();
   const empty = !s.deals.length && !s.bills.length && !s.contacts.length;
   const seedKey = "rodbooks:seeded:v3";

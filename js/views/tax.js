@@ -47,9 +47,11 @@ export default function taxView() {
     const yBills = allBills.filter((b) => (b.date || "").startsWith(year));
     const yPayments = allPayments.filter((p) => String(p.year) === year);
 
-    // Box-by-box totals (#32)
+    // Box-by-box totals (#32). Skip bills explicitly flagged personal or
+    // pre-tax — those don't belong in Schedule C deductions.
     const boxes = {};
     yBills.forEach((b) => {
+      if (b.taxStatus === "personal" || b.taxStatus === "preTax") return;
       const meta = SCHED_C[b.category] || SCHED_C.Other;
       const amt = +b.amount || 0;
       // Meals are 50% deductible
@@ -623,9 +625,10 @@ async function downloadYearEndPdf(yyyy) {
   const yBills = allBills.filter((b) => (b.date || "").startsWith(yyyy));
   const grossIncome = yDeals.reduce((s, d) => s + (+d.paidAmount || netFee(d)), 0);
   const totalBills = yBills.reduce((s, b) => s + (+b.amount || 0), 0);
-  // Box totals
+  // Box totals — skip personal / pre-tax bills (same rule as the live view).
   const boxes = {};
   yBills.forEach((b) => {
+    if (b.taxStatus === "personal" || b.taxStatus === "preTax") return;
     const meta = SCHED_C[b.category] || SCHED_C.Other;
     const amt = b.category === "Meals" ? (+b.amount || 0) * 0.5 : (+b.amount || 0);
     boxes[meta.label] = (boxes[meta.label] || 0) + amt;
