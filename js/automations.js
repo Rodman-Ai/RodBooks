@@ -2,6 +2,7 @@
 // Rules can be enabled and applied; applied changes write back via the store.
 
 import { Deals, Bills, Contacts, Settings } from "./store.js";
+import { netFee } from "./utils.js";
 
 const RULES_KEY = "rodbooks:rules";
 
@@ -299,14 +300,16 @@ export function generateProposals() {
     });
   }
 
-  // 11. Smart paid-date inference (#88): unpaid deals with invoice — suggest paidDate from next month-end.
-  const inferred = deals.filter((d) => !d.paid && d.invoiceDate && d.invoiceNumber).slice(0, 0); // placeholder; real matching needs bank-statement context.
-  // Skip surfacing if we have nothing concrete; future work hooks in matched bank rows.
+  // 11. Smart paid-date inference (#88) lives in views/banking.js (transaction
+  // matcher / quick-link). When the user confirms a bank-deposit match there,
+  // we mark the linked deal paid with the deposit's date. There is no passive
+  // automation proposal for it — without bank context we'd be guessing.
 
   // 8. Tax reserve alert — if estimated tax > current cash collected * 30%
   const yyyy = today.getFullYear();
   const yDeals = deals.filter((d) => d.paid && (d.paidDate || "").startsWith(String(yyyy)));
-  const collected = yDeals.reduce((s, d) => s + (d.paidAmount || 0), 0);
+  // Use netFee as fallback when paidAmount is empty (older / imported deals).
+  const collected = yDeals.reduce((s, d) => s + (+d.paidAmount || netFee(d)), 0);
   const taxReserve = collected * (Settings.get().taxRate || 0.3);
   if (taxReserve > 1000 && !rules["tax-reserve-ack"]) {
     proposals.push({

@@ -36,16 +36,21 @@ function parseHash() {
   return { path: path || "/", query };
 }
 
-let suppressNext = false;
 /**
  * Update query parameters on the current hash without re-rendering the route.
  * Subscribers can listen to the synthetic `rb:query` event for changes.
  * Pass `null`/`""` for a key to remove it.
+ *
+ * Note: `pushState`/`replaceState` don't fire `hashchange` in modern browsers,
+ * so we don't need to suppress anything — the route handler simply isn't
+ * invoked. (A previous version armed a `suppressNext` flag here that swallowed
+ * the next *real* navigation, e.g. clicking a sidebar link after changing a
+ * filter — fixed.)
+ *
  * @param {Record<string, string|null>} patch
  * @param {{replace?: boolean}} [opts] Use replaceState vs pushState.
  */
 export function setQuery(patch, { replace = false } = {}) {
-  // Update query params on the current hash without re-rendering the route.
   const { path, query } = parseHash();
   const next = { ...query };
   for (const [k, v] of Object.entries(patch)) {
@@ -55,7 +60,6 @@ export function setQuery(patch, { replace = false } = {}) {
   const qs = new URLSearchParams(next).toString();
   const target = "#" + path + (qs ? "?" + qs : "");
   if (location.hash === target) return;
-  suppressNext = true;
   if (replace) history.replaceState(null, "", target);
   else history.pushState(null, "", target);
   // Manually trigger one synthetic re-broadcast so subscribers can read new query
@@ -74,7 +78,6 @@ export function getQuery() {
  */
 export function start({ outlet, onChange }) {
   async function render() {
-    if (suppressNext) { suppressNext = false; return; }
     const { path, query } = parseHash();
     for (const r of routes) {
       const m = r.re.exec(path);

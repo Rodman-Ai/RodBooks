@@ -85,8 +85,9 @@ export function openDealForm(deal) {
     const last = basis.sort((a, b) => (b.serviceDate || "").localeCompare(a.serviceDate || ""))[0];
     smartFeeHint.innerHTML = `<span style="color:var(--info)">💡 ${basis === sameBoth ? "This brand" : "This service"}: median ${fmtMoney(median)} (n=${basis.length})${last?.serviceDate ? ", last " + fmtMoney(+last.fee) + " on " + last.serviceDate : ""}</span>`;
   }
-  svc.addEventListener("change", refreshSmartFee);
-  setTimeout(refreshSmartFee, 50);
+  // (Smart-fee wiring is bound *after* `svc` is declared, below — referencing
+  // svc here would TDZ-throw because of the lexical const-not-yet-initialised
+  // semantics in module mode.)
 
   const svc = selectEl(d.svc, SERVICE_OPTIONS.map((s) => ({ value: s.key, label: s.label })));
   const fee = input(d.fee, "number", { step: "0.01", min: "0" });
@@ -94,6 +95,9 @@ export function openDealForm(deal) {
   const paidAmount = input(d.paidAmount, "number", { step: "0.01", min: "0", placeholder: "auto" });
   const paid = input(null, "checkbox", { checked: d.paid });
   const paidDate = input(d.paidDate, "date");
+  // Smart-fee wiring (was here previously but referenced `svc` before declaration).
+  svc.addEventListener("change", refreshSmartFee);
+  setTimeout(refreshSmartFee, 50);
   const payMethod = input(d.payMethod, "text", { placeholder: "Stripe, Brex, ACH, partnerstack…" });
   const serviceDate = input(d.serviceDate, "date");
   const postDate = input(d.postDate, "date");
@@ -154,14 +158,23 @@ export function openDealForm(deal) {
   const usageRightsUntil = input(d.usageRightsUntil || "", "date");
   // Agent (#59)
   const agentList = Agents.all();
-  const agent = selectEl(d.agentId || "", [{ value: "", label: "— None —" }].concat(agentList.map((a) => ({ value: a.id, label: a.name + (a.defaultPct ? ` (${a.defaultPct}%)` : "") })), [{ value: "__new", label: "+ New agent…" }]));
+  const agentOptions = () => [
+    { value: "", label: "— None —" },
+    ...agentList.map((a) => ({ value: a.id, label: a.name + (a.defaultPct ? ` (${a.defaultPct}%)` : "") })),
+    { value: "__new", label: "+ New agent…" },
+  ];
+  const agent = selectEl(d.agentId || "", agentOptions());
   const agentPct = input(d.agentPct || "", "number", { step: "0.1", min: "0", max: "100", placeholder: "% commission" });
   agent.addEventListener("change", () => {
     if (agent.value === "__new") {
       const name = prompt("Agent / manager name");
       if (name) {
         const a = Agents.save({ name: name.trim(), defaultPct: +agentPct.value || 10 });
-        agent.replaceWith(selectEl(a.id, [{ value: "", label: "— None —" }].concat(Agents.all().map((x) => ({ value: x.id, label: x.name + (x.defaultPct ? ` (${x.defaultPct}%)` : "") })), [{ value: "__new", label: "+ New agent…" }])));
+        agent.replaceWith(selectEl(a.id, [
+          { value: "", label: "— None —" },
+          ...Agents.all().map((x) => ({ value: x.id, label: x.name + (x.defaultPct ? ` (${x.defaultPct}%)` : "") })),
+          { value: "__new", label: "+ New agent…" },
+        ]));
       } else agent.value = d.agentId || "";
     } else if (agent.value) {
       const a = Agents.get(agent.value);

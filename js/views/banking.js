@@ -450,8 +450,17 @@ function importWizardStep2(text, filename) {
   const saveMap = el("input", { class: "input", placeholder: filename || "Mapping name (e.g. Brex CSV)" });
   const previewBox = el("div", { class: "small muted", style: { marginTop: 8 } });
   const refreshPreview = () => {
-    const sample = data.slice(0, 3).map((row) => fieldDefs.map((f) => sels[f].value !== "" ? row[+sels[f].value] : "—").join("  ·  "));
-    previewBox.innerHTML = "Preview: " + sample.map((s) => `<div>· ${s}</div>`).join("");
+    // Build via text nodes — never inject untrusted CSV cells as HTML.
+    previewBox.textContent = "";
+    const head = document.createElement("div");
+    head.textContent = "Preview:";
+    previewBox.append(head);
+    data.slice(0, 3).forEach((row) => {
+      const line = fieldDefs.map((f) => sels[f].value !== "" ? row[+sels[f].value] : "—").join("  ·  ");
+      const div = document.createElement("div");
+      div.textContent = "· " + line;
+      previewBox.append(div);
+    });
   };
   Object.values(sels).forEach((s) => s.addEventListener("change", refreshPreview));
   refreshPreview();

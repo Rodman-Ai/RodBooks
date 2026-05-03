@@ -2,7 +2,7 @@
 
 This document is the canonical reference for the RodBooks codebase. It exists because the app grew from a one-shot static site into ~30 modules + 23 view files across seven shipped phases, and tracing intent from imports alone is now expensive.
 
-> **Also see:** the original 100-feature backlog is at the top of `/root/.claude/plans/do-competitor-analysis-and-encapsulated-tide.md` (off-repo).
+> **Status:** maintained on `main` after the audit-fix wave (PRs #15–#18). The 100-feature backlog itself was used to plan Phases 1–7; the running totals live in the commit log.
 
 ---
 
@@ -273,7 +273,7 @@ All routes are hash-based (`#/path`). Source: `js/app.js` `register()` calls.
 - `views/dashboard.js` → `aiActions.js` (AI co-pilot strip), `router.js`, `ui.js`
 - `views/contracts.js` → `llm.js`, `ui.js` (Ask AI)
 - `views/reports.js` → `aiActions.js` (coach mode), `digest.js`
-- `views/forms.js` → `ocr.js`, `offlineQueue.js`
+- `forms.js` → `ocr.js`, `offlineQueue.js`
 - `views/banking.js` → `ofx.js`
 - `views/settings.js` → `share.js`
 - `palette.js` → `theme.js`, `aiActions.js`, `store.js`, `ui.js`
@@ -285,30 +285,47 @@ All routes are hash-based (`#/path`). Source: `js/app.js` `register()` calls.
 
 ## 6. Defects, smells, dead code
 
-> Audit references the live tree as of `main` after PR #14. Severity tiers: **C** (critical: data loss / runtime crash / security), **M** (major: UX regression / partial feature), **m** (minor: cleanup / consistency).
+> Severity tiers: **C** (critical: data loss / runtime crash / security), **M** (major: UX regression / partial feature), **m** (minor: cleanup / consistency). The post-audit PRs #15–#18 closed most of the items below; the rest live in §6.1 *Open*.
 
-| # | File:lines | Severity | Description | Suggested fix |
-|---|---|---|---|---|
-| 1 | `js/app.js` (duplicate import block near top) | m | `import { runScheduler } from "./scheduler.js"` listed twice. | Delete duplicate. |
-| 2 | `js/forms.js`, `views/banking.js`, `views/mileage.js`, `views/income.js`, `views/settings.js`, `views/tax.js` | M | Each file declares its own local `field()` helper; same pattern. | Hoist a single `field()` into `utils.js` and import. |
-| 3 | `views/dashboard.js` (`kpiCard`), `views/automations.js`, `views/banking.js`, `views/brand.js`, `views/booking.js`, `views/mileage.js`, `views/tax.js`, `views/reports.js` | M | Same KPI-card primitive redefined in many files. | Hoist `kpiCard()` into `utils.js`. |
-| 4 | `js/digest.js`, `views/tax.js` | m | Each has its own `escapeHtml()`. | Move to `utils.js`. (**Done in this PR.**) |
-| 5 | `js/ui.js: openModal` | M (a11y) | No focus trap; Tab can leave the modal. | Trap focus on dialog element; restore on close. |
-| 6 | `sw.js: const CACHE = "rodbooks-shell-v1"` | C (deploys) | Cache key never bumps → old shell serves cached after deploy. | Bump on each shell-affecting change. (**Done — v2 in this PR.**) |
-| 7 | `js/profiles.js` + `js/store.js` cryptoVault wiring | M (security) | Switching profiles via `setActiveProfile()` triggers `location.reload()` but doesn't first call `cryptoVault.disable()` / `resetCache()`. In rare race conditions, an in-flight encrypt could write to the wrong profile's storage. | Call `disable()` + `resetCache()` immediately before reload. |
-| 8 | `index.html` mobile tabbar `<a>` elements | m (a11y) | No `aria-label` on icon-style tab links. | Add `aria-label` attributes. (**Done in this PR.**) |
-| 9 | `js/store.js` `imports js/synth.js` lazy; OK. But `loadSampleData` is `async`; some old code paths still expect synchronous behaviour. | m | Verify all callers `await`. | Audit. |
-| 10 | Schema fields collected by `forms.openDealForm` but **not displayed** in `views/deals.js` deal detail: `currency`, `fxRate`, `hoursWorked`, `perfPlatform`, `perfViews`, `perfEngagements`, `wireFee`, `withholdingPct`, `withholdingTreaty`, `approvalStatus`, `approvalNote`, `disputes`, `agentId`, `agentPct`, `lineItems`. | M | Re-opening a deal in the detail view + saving may discard fields not surfaced. | Either show all fields, or change save path to merge over existing record (currently does — verify). |
-| 11 | `views/tax.js` defines `field()` AND `field2()` (legacy refactor leftover). | m | Pick one. |
-| 12 | `views/dashboard.js: render()` | m | The arrow body declares ~55 top-level consts. After the duplicate-`runwayCard` regression we should add a static check (see §7). | Add CI smoke + duplicate-detector. |
-| 13 | `js/forms.js` deal save: only validates `company` non-empty. | M | Fee, dates, currency code, FX rate not validated. | Add client-side guards + toast warnings. |
-| 14 | `js/store.js` LLM API keys stored plaintext under `Settings.connect.llm.apiKey` unless vault is encrypted. | C (security) | If a curious local user opens DevTools, they see the key. | Either mandate encryption when keys are present, or warn prominently in `views/connect.js` header. |
-| 15 | `js/store.js: importJSON` overwrites entire vault without confirmation. | M | One slip → wiped data. | Wrap call sites in `confirmDialog`. (Settings does, but the API itself is unguarded.) |
-| 16 | `views/dashboard.js: cashRunwayCard` was duplicated previously (fixed in PR #14). | — | Watch for similar accidental copy/pastes. | Adopt smoke check #2 below. |
-| 17 | `js/digest.js` PDF generation calls `window.html2pdf` lazily. If the `<script defer>` hasn't loaded when the user clicks **Download digest PDF**, fails silently. | m | Add a "still loading…" toast and retry. |
-| 18 | `views/mileage.js` list rows show miles + purpose but not the per-row deductible $ amount. | m | Render `(miles × Settings.mileageRate)` per row. |
-| 19 | `views/connect.js` form fields for Plaid `secret`, Stripe `secretKey`, Dropbox Sign `apiKey` are stored as input type `text` (or `password`?). Verify and clamp. | M (security) | All sensitive fields → `type="password"`. (Audit reports they already are; verify.) |
-| 20 | Multiple modules redefine identical `escape*` helpers. | m | Single source of truth in `utils.js`. (**escapeHtml hoisted in this PR.**) |
+### 6.1 Open (worth a follow-up PR)
+
+| File:lines | Severity | Description | Suggested fix |
+|---|---|---|---|
+| `js/store.js` settings.connect.llm.apiKey + settings.connect.{plaid.secret,stripe.secretKey,dropboxSign.apiKey} | C (security) | API keys stored plaintext when encryption-at-rest is off. A curious local user opening DevTools can read them. | Either gate API-key storage behind enabled encryption, or surface a strong warning in `/connect` until the user opts in. |
+| `js/views/dashboard.js render()` | m | The arrow body declares ~55 top-level consts. The duplicate-`runwayCard` regression in PR #14 was caused by accidental re-declaration. | Wire the duplicate-const detector in §7.2 into a CI step. |
+| `js/digest.js` PDF generation race | resolved | Used to fail silently if `html2pdf` hadn't loaded yet. PR #16 introduced `js/pdf.js withHtml2Pdf()` which polls up to 3 s. | — |
+
+### 6.2 Closed by recent PRs
+
+| File:lines | Severity | Description | Closed by |
+|---|---|---|---|
+| `js/app.js` duplicate `import { runScheduler }` | m | Listed twice. | PR #15 |
+| `forms.js`, `views/banking.js`, `views/mileage.js`, `views/income.js`, `views/settings.js`, `views/tax.js` (local `field()`) | M | Each file declared its own local `field()`. | PR #16 (hoisted to `utils.js`) |
+| `views/dashboard.js (kpiCard)`, plus 7 other views (local `kpi()`) | M | Same KPI-card primitive redefined in many files. | PR #16 (hoisted to `utils.js` as `kpi()`) |
+| `js/digest.js`, `views/tax.js` (local `escapeHtml()`) | m | Same helper duplicated. | PR #15 (hoisted to `utils.js`; both now import) |
+| `js/ui.js: openModal` (focus trap) | M (a11y) | Tab could leave the modal. | PR #16 (focus trap + previously-focused restoration) |
+| `sw.js: CACHE = rodbooks-shell-v1` (cache key never bumps) | C | Old shell stays cached after deploys. | PR #15 (bumped to `v2`) |
+| `js/profiles.js` cryptoVault wiring | M (security) | In-flight async encrypt could write into the wrong profile's blob during switch. | PR #16 (`activateProfile()` helper drops crypto state + resets cache; `store.write()` captures `KEY()` per dispatch) |
+| `index.html` mobile tabbar a11y | m (a11y) | Icon-only links had no `aria-label`. | PR #15 |
+| Deal-form fields not displayed on detail (`currency`, `fxRate`, `disputes`, `agentId`, etc.) | M | Re-opening a deal in detail wouldn't show ~15 collected fields. | PR #17 (Commercials / Approval & disputes / Exclusivity & rights / Line items cards) |
+| `views/tax.js` `field` + `field2` duplicate | m | Legacy refactor leftover. | PR #16 |
+| `js/forms.js` deal-save validation | M | Only validated company non-empty. | PR #16 (fee, partner-fee %, FX rate, withholding %, paid≥service, exclusivity range) |
+| `js/store.js: importJSON` overwrites without confirm | M | One slip → wiped data. | PR #16 (`Settings → Import JSON` now goes through `confirmDialog`) |
+| `views/connect.js` sensitive inputs | M (security) | Audit suggested verifying `type="password"`. | Already correct (verified in PR #17 scan) |
+| Duplicate `kpi()` / `field()` / `escapeHtml()` | m | Three identical helpers across many files. | PR #15 + PR #16 |
+
+### 6.3 Bugs surfaced by external code review (post-audit)
+
+| File:lines | Severity | Description | Closed by |
+|---|---|---|---|
+| `js/app.js` firstRun racing with encrypted vault | C (data loss) | If `enc:v1:` blob exists but the first-run-seed flag is missing, `getState()` returns defaults (vault still locked) and `loadSampleData()` overwrites the encrypted blob with seed data. | This PR — `firstRun` bails when `rawIsEncrypted()`. |
+| `js/forms.js` `svc.addEventListener` before `const svc` | C (runtime) | TDZ ReferenceError — *every* deal-form open path crashed. | This PR — wiring moved after the `const svc` declaration. |
+| `js/router.js` `setQuery` → `suppressNext` | M (UX) | `pushState`/`replaceState` don't fire `hashchange`; the suppressed-next flag stays armed and swallows the next *real* navigation (e.g. clicking a sidebar link after changing a filter). | This PR — `suppressNext` removed entirely. |
+| `js/views/banking.js` CSV preview innerHTML | M (XSS) | A malicious CSV cell could inject HTML into the preview during import. | This PR — preview rebuilt with `textContent` only. |
+| `js/views/tax.js` Schedule C totals included `taxStatus=personal` and `preTax` bills | M (correctness) | Personal expenses got deducted on Schedule C. | This PR — both filtered out in the live view and the year-end PDF. |
+| `js/automations.js` tax-reserve uses `d.paidAmount || 0` | m (correctness) | Older / imported paid deals with no `paidAmount` contributed $0 to the reserve calc. | This PR — falls back to `netFee(d)` like the rest of the app. |
+| `js/forms.js` "+ New agent" select option | — | Reviewer flagged as missed (false positive — `[a].concat(b, c)` flattens both args correctly). | This PR refactors to `[..., ...arr, ...]` for clarity anyway. |
+| `README.md` paid-date inference framing | m (docs) | Read as "passive matcher" but the code only fires from a confirmed bank-row match in `/banking`. | This PR rewords + drops the dead `slice(0, 0)` placeholder in `automations.js`. |
 
 ### Out-of-scope (audit-flagged) follow-up PRs
 
@@ -409,4 +426,4 @@ DevTools → Network → Offline. Open Bills → Capture receipt → save image.
 
 ---
 
-*Last updated: rebrand-AI-first PR #13 + dashboard-fix PR #14.*
+*Last updated: post-audit-fix PR #18 (firstRun guard, deal-form TDZ, router suppressNext, CSV-preview escape, Sched C taxStatus filter, tax-reserve netFee fallback, agent-select clarity, README paid-date framing).*

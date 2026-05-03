@@ -20,7 +20,8 @@ Creator-business books live in a sprawling spreadsheet: brand, fee, contract lin
 - **Sponsorship inbox** — paste a brand outreach email; we extract brand, fee, timing and queue it as a draft lead.
 - **Smart fee suggestion** — when you pick a brand+service, the form surfaces median accepted fee from your history.
 - **Vendor → category memory** — bills auto-categorize after a few examples.
-- **Anomaly detection + smart paid-date inference** — automation engine flags spikes and matches deposits to invoices.
+- **Anomaly detection** — automation engine flags single-bill outliers (>5× median) and monthly spend spikes (>2× trailing-3-month avg).
+- **Smart paid-date inference** — in the Banking view, confirming a transaction match against an unpaid deal auto-marks it paid with the deposit's date and txn id. (There's no blind passive matcher — a bank row has to be present.)
 
 Built on a full QuickBooks-style ledger:
 
@@ -64,23 +65,39 @@ You can also serve from any static host (Netlify, Vercel, S3, Cloudflare Pages) 
 
 ## Data model
 
-All data is stored under the localStorage key `rodbooks:v1`. Top-level shape:
+All data is stored in `localStorage`. The default profile uses key `rodbooks:v1`; additional profiles use `rodbooks:v1:<profile-id>`. Profile metadata lives at `rodbooks:profiles`; the active profile id at `rodbooks:activeProfile`. When encryption-at-rest is enabled, the profile blob is replaced by a string of the form `enc:v1:<base64(salt|iv|ciphertext)>`.
+
+For the canonical, always-up-to-date list of every collection + every settings field, see [`docs/ARCHITECTURE.md` §3](docs/ARCHITECTURE.md). The high-level shape:
 
 ```json
 {
   "schema": 1,
-  "settings": { "businessName", "email", "address", "taxRate", "currency", "invoicePrefix", "nextInvoiceNumber" },
-  "deals":    [ { "company", "svc", "fee", "partnerFeePct", "paidAmount", "paid", "paidDate", "payMethod",
-                  "serviceDate", "postDate", "draftDue", "contractUrl", "briefUrl", "draftUrl",
-                  "portalUrl", "notesUrl", "invoiceNumber", "invoiceDate", "invoiceUrl", "invoiceTo",
-                  "transactionId", "notes", "contactId" } ],
-  "bills":    [ { "vendor", "category", "amount", "date", "paid", "paidDate", "payMethod", "recurring", "receiptUrl", "notes" } ],
-  "contacts": [ { "name", "company", "type", "email", "phone", "notes" } ],
-  "invoices": []
+  "settings": {
+    "businessName", "legalName", "email", "address",
+    "taxRate", "currency", "invoicePrefix", "nextInvoiceNumber",
+    "theme", "monthlyGoal", "annualGoal", "mileageRate",
+    "lockHash", "state", "stateRate", "defaultTerms", "lateFeePct", "cashOnHand",
+    "invoiceTemplate": { "logo", "primary", "footer", "taxId" },
+    "homeOffice": { "sqft", "totalSqft", "monthlyUtilities" },
+    "connect": {
+      "plaid": { "clientId", "secret", "env" },
+      "stripe": { "publishableKey", "secretKey" },
+      "dropboxSign": { "apiKey" },
+      "llm": { "provider", "apiKey", "model" }
+    }
+  },
+  "deals": [ /* see ARCHITECTURE.md for full field list — currency/fxRate/wireFee/withholdingPct/approvalStatus/disputes/agentId/agentPct/exclusivity/lineItems/deliverables/partials + standard fee/paid/dates/links */ ],
+  "bills": [ /* { vendor, category, amount, date, paid, paidDate, payMethod, recurring, receiptUrl, notes, dealId, taxStatus } */ ],
+  "contacts": [ /* { name, company, type, email, phone, notes, tags, wikiMd, defaultRates, audience, testimonials, emailLog, confidential } */ ],
+  "invoices": [], "mileage": [], "activity": [], "snapshots": [],
+  "taxPayments": [], "contractTemplates": [], "outreachTemplates": [],
+  "vendorRules": [], "dealTemplates": [], "agents": [],
+  "accounts": [], "transactions": [], "affiliates": [], "affiliateEntries": [],
+  "tips": [], "assets": [], "csvMappings": [], "salesTax": [], "reportPresets": []
 }
 ```
 
-Use **Settings → Export JSON** for a full backup. **Import JSON** restores it.
+Use **Settings → Export JSON** for a full backup. **Import JSON** restores it (after a confirmation dialog). **Snapshots** keep up to 20 in-app restore points.
 
 ## Service-type codes
 
