@@ -1,4 +1,4 @@
-import { el, fmtMoney, fmtMoneyShort, fmtDate, fmtDateShort, monthKey, monthLabel, netFee, dealStatus, serviceMeta, initials } from "../utils.js";
+import { el, fmtMoney, fmtMoneyShort, fmtDate, fmtDateShort, monthKey, monthLabel, netFee, dealStatus, serviceMeta, initials, kpi } from "../utils.js";
 import { Deals, Contacts, Activity, subscribe } from "../store.js";
 import { go } from "../router.js";
 import { openContactForm, openDealForm } from "../forms.js";
@@ -278,10 +278,3 @@ export default function brandPage({ name }) {
   return { node, unmount: () => { unsub(); if (chart) chart.destroy(); } };
 }
 
-function kpi(label, value, dir, sub) {
-  return el("div", { class: `card kpi ${dir || ""}` },
-    el("div", { class: "kpi-sub" }, label),
-    el("div", { class: "kpi-value" }, value),
-    sub && el("div", { class: "kpi-sub" }, sub),
-  );
-}

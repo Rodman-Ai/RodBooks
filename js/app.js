@@ -253,7 +253,7 @@ document.addEventListener("click", (e) => {
 document.getElementById("quickAddBtn").addEventListener("click", () => openQuickAdd());
 
 // Multi-entity profile switcher (#69)
-import("./profiles.js").then(({ listProfiles, getActiveProfileId, setActiveProfile, createProfile }) => {
+import("./profiles.js").then(({ listProfiles, getActiveProfileId, activateProfile, createProfile }) => {
   const sel = document.getElementById("profileSwitcher");
   if (!sel) return;
   const refresh = () => {
@@ -278,15 +278,13 @@ import("./profiles.js").then(({ listProfiles, getActiveProfileId, setActiveProfi
       const name = prompt("Name the new profile (e.g. LLC, Personal)");
       if (name) {
         const p = createProfile(name);
-        setActiveProfile(p.id);
-        location.reload();
+        activateProfile(p.id);
       } else refresh();
     } else if (sel.value === "__manage") {
       go("/settings");
       refresh();
     } else {
-      setActiveProfile(sel.value);
-      location.reload();
+      activateProfile(sel.value);
     }
   });
   refresh();

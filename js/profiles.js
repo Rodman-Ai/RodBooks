@@ -41,6 +41,28 @@ export function setActiveProfile(id) {
   localStorage.setItem(ACTIVE_KEY, id);
 }
 
+/**
+ * Switch the active profile and reload. Tears down the crypto-vault session
+ * key and clears the in-memory store cache so the next read comes fresh
+ * from the new profile's localStorage key. Combined with the
+ * dispatch-time key capture in `store.write()`, this prevents in-flight
+ * async encrypts from writing into the wrong profile's blob.
+ *
+ * @param {string} id Target profile id.
+ */
+export async function activateProfile(id) {
+  try {
+    const { disable } = await import("./cryptoVault.js");
+    disable();
+  } catch {}
+  try {
+    const { resetCache } = await import("./store.js");
+    resetCache();
+  } catch {}
+  setActiveProfile(id);
+  location.reload();
+}
+
 export function dataKeyFor(id) {
   // Backward compat: the "default" profile keeps the legacy key.
   if (id === "default") return LEGACY_KEY;

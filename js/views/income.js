@@ -1,6 +1,6 @@
 // Other income streams: affiliate (#9), tips/donations (#10), AdSense importer (#8).
 
-import { el, fmtMoney, fmtDate, todayISO, csvFromString } from "../utils.js";
+import { el, fmtMoney, fmtDate, todayISO, csvFromString, field } from "../utils.js";
 import { Affiliates, AffiliateEntries, Tips, subscribe, downloadFile } from "../store.js";
 import { openModal, toast, confirmDialog } from "../ui.js";
 
@@ -242,9 +242,6 @@ function normalizeMonth(s) {
   return null;
 }
 
-function field(label, control, full) {
-  return el("div", { class: `field ${full ? "full" : ""}` }, el("label", {}, label), control);
-}
 
 function openTipForm(tip) {
   const isNew = !tip?.id;

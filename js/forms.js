@@ -1,14 +1,10 @@
 // Reusable form builders for the main entities.
 
-import { el } from "./utils.js";
+import { el, field } from "./utils.js";
 import { Contacts, Deals, Bills, Settings, VendorRules, DealTemplates, Agents } from "./store.js";
 import { SERVICE_OPTIONS, todayISO, netFee, fmtMoney } from "./utils.js";
 import { openModal, toast } from "./ui.js";
 import { parseDealText } from "./nl.js";
-
-function field(label, control, opts = {}) {
-  return el("div", { class: `field ${opts.full ? "full" : ""}` }, el("label", {}, label), control);
-}
 
 function input(value, type = "text", attrs = {}) {
   return el("input", { class: "input", type, value: value ?? "", ...attrs });
@@ -384,6 +380,20 @@ export function openDealForm(deal) {
   let modal;
   const save = () => {
     if (!company.value.trim()) { toast("Company is required", "warn"); return; }
+    // #13 Validation: fee, partner-fee %, FX rate, date sanity, withholding %.
+    if (+fee.value < 0) { toast("Fee can't be negative", "warn"); return; }
+    if (+partnerFee.value < 0 || +partnerFee.value > 100) { toast("Partner fee % must be 0–100", "warn"); return; }
+    if (+withholdingPct.value < 0 || +withholdingPct.value > 100) { toast("Withholding % must be 0–100", "warn"); return; }
+    if (dealCcy.value !== baseCcy && (!fxRate.value || +fxRate.value <= 0)) {
+      toast(`Set a positive FX rate (${dealCcy.value} → ${baseCcy})`, "warn");
+      return;
+    }
+    if (paidDate.value && serviceDate.value && paidDate.value < serviceDate.value) {
+      toast("Paid date can't be before service date", "warn"); return;
+    }
+    if (exclusivityFrom.value && exclusivityTo.value && exclusivityFrom.value > exclusivityTo.value) {
+      toast("Exclusivity end is before start", "warn"); return;
+    }
     let cId = contact.value && contact.value !== "__new" ? contact.value : null;
     if (!cId) {
       const c = Contacts.ensure(company.value.trim());

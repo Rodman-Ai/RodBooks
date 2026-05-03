@@ -1,4 +1,4 @@
-import { el, fmtMoney, fmtMoneyShort, monthKey, monthLabel, netFee, serviceMeta, dsoOf, agingBucket, dueDate, daysPastDue } from "../utils.js";
+import { el, fmtMoney, fmtMoneyShort, monthKey, monthLabel, netFee, serviceMeta, dsoOf, agingBucket, dueDate, daysPastDue, kpi } from "../utils.js";
 import { Deals, Bills, Settings, subscribe } from "../store.js";
 
 export default function reports() {
@@ -359,13 +359,6 @@ export default function reports() {
   return { node, unmount: () => { unsub(); if (chart) chart.destroy(); } };
 }
 
-function kpi(label, value, dir, sub) {
-  return el("div", { class: `card kpi ${dir || ""}` },
-    el("div", { class: "kpi-sub" }, label),
-    el("div", { class: "kpi-value" }, value),
-    sub && el("div", { class: "kpi-sub" }, sub),
-  );
-}
 
 function quarterlyBreakdown(paidDeals, rate) {
   const Q = [

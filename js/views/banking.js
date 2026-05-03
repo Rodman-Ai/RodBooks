@@ -1,7 +1,7 @@
 // Banking: accounts (#22), CSV import w/ mapping memory (#21), vendor rules (#23),
 // transaction matcher (#24), reconciliation worksheet (#25), smart paid-date inference (#88).
 
-import { el, fmtMoney, fmtDate, fmtDateShort, csvFromString, debounce, todayISO, parseDate } from "../utils.js";
+import { el, fmtMoney, fmtDate, fmtDateShort, csvFromString, debounce, todayISO, parseDate, kpi, field } from "../utils.js";
 import { Accounts, Transactions, Deals, Bills, VendorRules, CsvMappings, subscribe, downloadFile, toCSV } from "../store.js";
 import { openModal, toast, confirmDialog } from "../ui.js";
 import { go } from "../router.js";
@@ -276,18 +276,6 @@ export default function bankingView() {
   const unsub = subscribe(render);
   render();
   return { node, unmount: unsub };
-}
-
-function kpi(label, value, dir, sub) {
-  return el("div", { class: `card kpi ${dir || ""}` },
-    el("div", { class: "kpi-sub" }, label),
-    el("div", { class: "kpi-value" }, value),
-    sub && el("div", { class: "kpi-sub" }, sub),
-  );
-}
-
-function field(label, control, full) {
-  return el("div", { class: `field ${full ? "full" : ""}` }, el("label", {}, label), control);
 }
 
 function openAccountForm(account) {

@@ -1,8 +1,9 @@
 // Tax workbench: Schedule C box totals, SE tax, state tax, quarterly payment log, 1099 payer tracker.
 
-import { el, fmtMoney, fmtDate, fmtDateShort, todayISO, netFee, parseDate, escapeHtml } from "../utils.js";
+import { el, fmtMoney, fmtDate, fmtDateShort, todayISO, netFee, parseDate, escapeHtml, kpi, field } from "../utils.js";
 import { Deals, Bills, Settings, TaxPayments, Assets, SalesTax, subscribe, downloadFile, toCSV } from "../store.js";
 import { openModal, toast, confirmDialog } from "../ui.js";
+import { withHtml2Pdf } from "../pdf.js";
 
 // 5-year MACRS half-year convention (cameras, computers, lights). Approximate.
 const MACRS_5 = [0.20, 0.32, 0.192, 0.1152, 0.1152, 0.0576];
@@ -236,9 +237,9 @@ export default function taxView() {
           el("h3", {}, "Home-office deduction"),
           el("div", { class: "small muted", style: { marginBottom: 8 } }, "IRS regular method: business-use % × utilities. (Simplified method = $5 × sq ft, max $1,500.)"),
           el("div", { class: "form-grid" },
-            field2("Office sq ft", sqft),
-            field2("Total home sq ft", totalSqft),
-            field2("Monthly utilities ($)", monthlyUtilities),
+            field("Office sq ft", sqft),
+            field("Total home sq ft", totalSqft),
+            field("Monthly utilities ($)", monthlyUtilities),
           ),
           out,
           el("div", { style: { marginTop: 12 } }, el("button", { class: "btn", onclick: save }, "Save")),
@@ -397,13 +398,6 @@ function tr2(k, v, bold) {
   );
 }
 
-function kpi(label, value, dir, sub) {
-  return el("div", { class: `card kpi ${dir || ""}` },
-    el("div", { class: "kpi-sub" }, label),
-    el("div", { class: "kpi-value" }, value),
-    sub && el("div", { class: "kpi-sub" }, sub),
-  );
-}
 
 function openTaxPaymentForm(payment) {
   const isNew = !payment?.id;
@@ -456,10 +450,6 @@ function openTaxPaymentForm(payment) {
   setTimeout(() => amount.focus(), 30);
 }
 
-function field2(label, control, full) {
-  return el("div", { class: `field ${full ? "full" : ""}` }, el("label", {}, label), control);
-}
-
 function openSalesTaxForm(entry) {
   const isNew = !entry?.id;
   const e = entry || { date: todayISO(), state: "CA", taxableSales: 0, ratePct: 7.25, taxCollected: 0, paid: false, paidDate: "", notes: "" };
@@ -482,14 +472,14 @@ function openSalesTaxForm(entry) {
   ratePct.addEventListener("input", recalc);
 
   const body = el("div", { class: "form-grid" },
-    field2("Date", date),
-    field2("State", state),
-    field2("Taxable sales ($)", taxableSales),
-    field2("Rate %", ratePct),
-    field2("Tax collected ($)", taxCollected),
+    field("Date", date),
+    field("State", state),
+    field("Taxable sales ($)", taxableSales),
+    field("Rate %", ratePct),
+    field("Tax collected ($)", taxCollected),
     el("div", { class: "field" }, el("label", {}, "Remitted?"), el("div", {}, paid)),
-    field2("Paid date", paidDate),
-    field2("Notes", notes, true),
+    field("Paid date", paidDate),
+    field("Notes", notes, true),
   );
   let m;
   const save = () => {
@@ -530,12 +520,12 @@ function openAssetForm(asset) {
   });
   const notes = el("textarea", { class: "textarea" }, a.notes || "");
   const body = el("div", { class: "form-grid" },
-    field2("Name", name, true),
-    field2("Category", category),
-    field2("Purchase date", purchaseDate),
-    field2("Cost ($)", cost),
-    field2("Method", life),
-    field2("Notes", notes, true),
+    field("Name", name, true),
+    field("Category", category),
+    field("Purchase date", purchaseDate),
+    field("Cost ($)", cost),
+    field("Method", life),
+    field("Notes", notes, true),
   );
   let m;
   const save = () => {
@@ -558,13 +548,9 @@ function openAssetForm(asset) {
   setTimeout(() => name.focus(), 30);
 }
 
-function field(label, control, full) {
-  return el("div", { class: `field ${full ? "full" : ""}` }, el("label", {}, label), control);
-}
 
 // 1099-NEC PDF generator (#38): one printable summary per payer.
-function generate1099Pdfs(owedForms, year) {
-  if (!window.html2pdf) { toast("PDF library not loaded yet", "warn"); return; }
+async function generate1099Pdfs(owedForms, year) {
   const s = Settings.get();
   // Build a single multi-page document; each payer gets its own page.
   const wrapper = document.createElement("div");
@@ -616,19 +602,20 @@ function generate1099Pdfs(owedForms, year) {
     div.innerHTML = html;
     wrapper.append(div.firstElementChild);
   });
-  window.html2pdf().set({
-    margin: 8,
-    filename: `1099-NEC-${year}.pdf`,
-    html2canvas: { scale: 2, backgroundColor: "#ffffff" },
-    jsPDF: { unit: "mm", format: "letter", orientation: "portrait" },
-  }).from(wrapper).save();
   toast(`Generating ${owedForms.length} 1099 summar${owedForms.length === 1 ? "y" : "ies"}…`);
+  try {
+    await withHtml2Pdf((html2pdf) => html2pdf().set({
+      margin: 8,
+      filename: `1099-NEC-${year}.pdf`,
+      html2canvas: { scale: 2, backgroundColor: "#ffffff" },
+      jsPDF: { unit: "mm", format: "letter", orientation: "portrait" },
+    }).from(wrapper).save());
+  } catch (e) { toast(e.message, "warn", 4000); }
 }
 
 // Year-end tax PDF (#39). Single printable doc with P&L, Schedule C totals,
 // SE-tax breakdown, mileage, depreciation, sales tax, 1099 summary.
-function downloadYearEndPdf(yyyy) {
-  if (!window.html2pdf) { toast("PDF library not loaded yet", "warn"); return; }
+async function downloadYearEndPdf(yyyy) {
   const settings = Settings.get();
   const allDeals = Deals.all();
   const allBills = Bills.all();
@@ -698,13 +685,15 @@ function downloadYearEndPdf(yyyy) {
   `;
   const wrapper = document.createElement("div");
   wrapper.innerHTML = html;
-  window.html2pdf().set({
-    margin: 8,
-    filename: `rodbooks-yearend-${yyyy}.pdf`,
-    html2canvas: { scale: 2, backgroundColor: "#ffffff" },
-    jsPDF: { unit: "mm", format: "letter", orientation: "portrait" },
-  }).from(wrapper).save();
-  toast(`Year-end ${yyyy} PDF exported`);
+  try {
+    await withHtml2Pdf((html2pdf) => html2pdf().set({
+      margin: 8,
+      filename: `rodbooks-yearend-${yyyy}.pdf`,
+      html2canvas: { scale: 2, backgroundColor: "#ffffff" },
+      jsPDF: { unit: "mm", format: "letter", orientation: "portrait" },
+    }).from(wrapper).save());
+    toast(`Year-end ${yyyy} PDF exported`);
+  } catch (e) { toast(e.message, "warn", 4000); }
 }
 
 // Audit pack export (#40): bundle CSVs of deals/bills/mileage/payments + a summary as JSON download.

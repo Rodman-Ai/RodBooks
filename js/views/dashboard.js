@@ -1,6 +1,6 @@
 // Tableau-style dashboard: shared filter bar, cross-linked charts, drill-down.
 
-import { el, fmtMoney, fmtMoneyShort, fmtDate, monthKey, monthLabel, netFee, dealStatus, serviceMeta, initials, brandWarmth } from "../utils.js";
+import { el, fmtMoney, fmtMoneyShort, fmtDate, monthKey, monthLabel, netFee, dealStatus, serviceMeta, initials, brandWarmth, kpi } from "../utils.js";
 import { Deals, Bills, Settings, subscribe } from "../store.js";
 import { go } from "../router.js";
 import { generateProposals } from "../automations.js";
@@ -88,12 +88,12 @@ export default function dashboard() {
 
     // ---- KPI row ----
     const kpis = el("div", { class: "kpi-grid" },
-      kpiCard("Income (booked)", fmtMoney(totalIncome), yoyChip(yoy.income), "up"),
-      kpiCard("Cash collected", fmtMoney(collected), yoyChip(yoy.collected)),
-      kpiCard("Outstanding", fmtMoney(outstanding), `${deals.filter((d) => !d.paid).length} unpaid`),
-      kpiCard("Expenses", fmtMoney(expenses), yoyChip(yoy.expenses, true)),
-      kpiCard("Profit", fmtMoney(profit), `Tax reserve ${fmtMoney(taxReserve)}`, profit >= 0 ? "up" : "down"),
-      kpiCard("Avg deal", fmtMoney(deals.length ? totalIncome / deals.length : 0), `${deals.length} deals`),
+      kpi("Income (booked)", fmtMoney(totalIncome), yoyChip(yoy.income), "up"),
+      kpi("Cash collected", fmtMoney(collected), yoyChip(yoy.collected)),
+      kpi("Outstanding", fmtMoney(outstanding), `${deals.filter((d) => !d.paid).length} unpaid`),
+      kpi("Expenses", fmtMoney(expenses), yoyChip(yoy.expenses, true)),
+      kpi("Profit", fmtMoney(profit), `Tax reserve ${fmtMoney(taxReserve)}`, profit >= 0 ? "up" : "down"),
+      kpi("Avg deal", fmtMoney(deals.length ? totalIncome / deals.length : 0), `${deals.length} deals`),
     );
 
     // ---- Proposals strip ----
@@ -536,13 +536,6 @@ function select(allLabel, options, value, onChange) {
   return s;
 }
 
-function kpiCard(label, value, sub, dir) {
-  return el("div", { class: `card kpi ${dir || ""}` },
-    el("div", { class: "kpi-sub" }, label),
-    el("div", { class: "kpi-value" }, value),
-    sub ? (typeof sub === "string" ? el("div", { class: "kpi-sub" }, sub) : sub) : null,
-  );
-}
 
 function yoyChip(delta, invert) {
   if (delta == null || !isFinite(delta)) return null;

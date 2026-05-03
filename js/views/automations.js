@@ -1,4 +1,4 @@
-import { el } from "../utils.js";
+import { el, kpi } from "../utils.js";
 import { generateProposals, getRules, setRule } from "../automations.js";
 import { subscribe } from "../store.js";
 import { toast, confirmDialog } from "../ui.js";
@@ -108,10 +108,3 @@ function ruleList(rules, rerender) {
   );
 }
 
-function kpi(label, value, sub) {
-  return el("div", { class: "card kpi" },
-    el("div", { class: "kpi-sub" }, label),
-    el("div", { class: "kpi-value" }, value),
-    sub && el("div", { class: "kpi-sub" }, sub),
-  );
-}

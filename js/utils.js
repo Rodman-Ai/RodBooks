@@ -437,3 +437,50 @@ export function initials(name) {
   const parts = String(name).trim().split(/\s+/).slice(0, 2);
   return parts.map((p) => p[0]).join("").toUpperCase();
 }
+
+/**
+ * Standard form-field wrapper. `<div class="field"><label>…</label>{control}</div>`
+ *
+ * `opts` accepts either an object (`{full: true}`) or a bare boolean (`true`)
+ * for backwards compatibility — historically views used the boolean form.
+ *
+ * @param {string} label
+ * @param {Node} control
+ * @param {boolean|{full?: boolean}} [opts]
+ * @returns {HTMLElement}
+ */
+export function field(label, control, opts) {
+  const full = typeof opts === "object" ? !!(opts && opts.full) : !!opts;
+  return el("div", { class: `field ${full ? "full" : ""}` }, el("label", {}, label), control);
+}
+
+/**
+ * Standard KPI card: a small label, a big number, an optional sub-caption,
+ * and an optional `dir` ("up" / "down") that tints the card border.
+ *
+ * Tolerates both legacy positional orders that existed before the hoist:
+ *   - `kpi(label, value, sub, dir)` — dashboard's historical `kpiCard` order
+ *   - `kpi(label, value, dir, sub)` — order used by brand/banking/tax/reports
+ * It detects the "up"/"down" string and routes accordingly.
+ *
+ * @param {string} label
+ * @param {string|number} value
+ * @param {string|Node|null} [thirdArg]
+ * @param {string|Node|null} [fourthArg]
+ * @returns {HTMLElement}
+ */
+export function kpi(label, value, thirdArg, fourthArg) {
+  let sub, dir;
+  if (thirdArg === "up" || thirdArg === "down") {
+    dir = thirdArg; sub = fourthArg;
+  } else if (fourthArg === "up" || fourthArg === "down") {
+    sub = thirdArg; dir = fourthArg;
+  } else {
+    sub = thirdArg; dir = fourthArg;
+  }
+  return el("div", { class: `card kpi ${dir || ""}` },
+    el("div", { class: "kpi-sub" }, label),
+    el("div", { class: "kpi-value" }, value),
+    sub ? (typeof sub === "string" ? el("div", { class: "kpi-sub" }, sub) : sub) : null,
+  );
+}

@@ -30,10 +30,12 @@ export default function mediaKitView() {
             toast("HTML copied — paste into any web host");
           } }, "Copy HTML"),
           el("button", { class: "btn", onclick: async () => {
-            if (!window.html2pdf) { toast("PDF library still loading", "warn"); return; }
             const wrapper = document.createElement("div"); wrapper.innerHTML = bodyHtml();
-            window.html2pdf().set({ margin: 8, filename: "media-kit.pdf", html2canvas: { scale: 2, backgroundColor: "#ffffff" }, jsPDF: { unit: "mm", format: "letter", orientation: "portrait" } }).from(wrapper).save();
             toast("Generating PDF…");
+            try {
+              const { withHtml2Pdf } = await import("../pdf.js");
+              await withHtml2Pdf((html2pdf) => html2pdf().set({ margin: 8, filename: "media-kit.pdf", html2canvas: { scale: 2, backgroundColor: "#ffffff" }, jsPDF: { unit: "mm", format: "letter", orientation: "portrait" } }).from(wrapper).save());
+            } catch (e) { toast(e.message, "warn", 4000); }
           } }, "Download PDF"),
         ),
       ),
