@@ -213,6 +213,33 @@ export { escHtml as escapeHtml };
  * @param {...(Node|string|number|boolean|null|undefined|Array)} children
  * @returns {HTMLElement}
  */
+
+// CSS properties whose values must carry a length unit. When a style object
+// passes a bare number (e.g. `marginTop: 6`), browsers silently drop it. We
+// rewrite to "Npx" (and treat 0 specially since "0" is a valid unitless length).
+// `lineHeight`, `opacity`, `flex`, `flexGrow`, `flexShrink`, `zIndex`, `order`,
+// `fontWeight` are explicitly EXCLUDED — those accept unitless numbers.
+const _LENGTH_PROPS = new Set([
+  "margin", "marginTop", "marginRight", "marginBottom", "marginLeft",
+  "padding", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+  "top", "right", "bottom", "left",
+  "width", "minWidth", "maxWidth",
+  "height", "minHeight", "maxHeight",
+  "fontSize", "borderRadius", "borderWidth",
+  "gap", "rowGap", "columnGap", "letterSpacing",
+]);
+
+function applyStyle(node, styleObj) {
+  for (const [prop, raw] of Object.entries(styleObj)) {
+    if (raw == null || raw === false) continue;
+    let v = raw;
+    if (typeof v === "number" && _LENGTH_PROPS.has(prop)) {
+      v = v === 0 ? "0" : v + "px";
+    }
+    node.style[prop] = v;
+  }
+}
+
 export function el(tag, attrs = {}, ...children) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
@@ -220,7 +247,7 @@ export function el(tag, attrs = {}, ...children) {
     if (k === "class") e.className = v;
     else if (k === "html") e.innerHTML = v;
     else if (k.startsWith("on") && typeof v === "function") e.addEventListener(k.slice(2).toLowerCase(), v);
-    else if (k === "style" && typeof v === "object") Object.assign(e.style, v);
+    else if (k === "style" && typeof v === "object") applyStyle(e, v);
     else e.setAttribute(k, v);
   }
   for (const c of children.flat()) {
