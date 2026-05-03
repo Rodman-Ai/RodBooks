@@ -1,5 +1,5 @@
 import { el, fmtMoney, fmtDate, fmtDateShort, netFee, dealStatus, serviceMeta, escHtml, debounce, todayISO, parseDate, parseSearchOperators, dealStageAge, dueDate, daysPastDue, lateFee } from "../utils.js";
-import { Deals, Contacts, Settings, DealTemplates, subscribe, downloadFile, toCSV } from "../store.js";
+import { Deals, Contacts, Settings, DealTemplates, Agents, subscribe, downloadFile, toCSV } from "../store.js";
 import { go, getQuery, setQuery } from "../router.js";
 import { openDealForm } from "../forms.js";
 import { confirmDialog, toast } from "../ui.js";
@@ -498,6 +498,67 @@ export function dealDetail({ id }) {
           kv("Invoice", link(d.invoiceUrl)),
         ),
       ),
+      // Commercials (#10): currency, FX, withholding, agent attribution.
+      (d.currency || d.fxRate || d.withholdingPct || d.agentId || d.wireFee || d.hoursWorked || d.perfPlatform) && el("div", { class: "card" },
+        el("h3", {}, "Commercials"),
+        el("div", { class: "detail-grid" },
+          d.currency && d.currency !== Settings.get().currency && kv("Currency", `${d.currency}${d.fxRate ? ` @ ${d.fxRate}` : ""}`),
+          d.withholdingPct ? kv("Withholding", `${d.withholdingPct}%${d.withholdingTreaty ? " · " + d.withholdingTreaty : ""}`) : null,
+          d.wireFee ? kv("Foreign-wire fee", fmtMoney(d.wireFee)) : null,
+          d.hoursWorked ? kv("Hours worked", `${d.hoursWorked}h · ${fmtMoney(netFee(d) / d.hoursWorked)}/hr eff. rate`) : null,
+          d.agentId ? kv("Agent / manager", (function () {
+            const ag = Agents.get(d.agentId);
+            const name = ag?.name || "—";
+            return `${name}${d.agentPct ? ` · ${d.agentPct}% commission` : ""}`;
+          })()) : null,
+          d.perfPlatform ? kv("Performance", `${d.perfPlatform.toUpperCase()}${d.perfViews ? ` · ${(+d.perfViews).toLocaleString()} views` : ""}${d.perfEngagements ? ` · ${(+d.perfEngagements).toLocaleString()} engagements` : ""}`) : null,
+          d.quotedFee && d.quotedFee !== d.fee ? kv("Quoted vs accepted", `${fmtMoney(d.quotedFee)} → ${fmtMoney(d.fee)} (${Math.round((d.fee / d.quotedFee) * 100)}%)`) : null,
+        ),
+      ),
+      // Approval / dispute log (#10).
+      (d.approvalStatus && d.approvalStatus !== "n/a") || d.disputes?.length ? el("div", { class: "card" },
+        el("h3", {}, "Approval & disputes"),
+        el("div", { class: "detail-grid" },
+          d.approvalStatus && d.approvalStatus !== "n/a" ? kv("Approval status", el("span", {},
+            el("span", { class: `pill ${d.approvalStatus === "approved" ? "green" : d.approvalStatus === "rejected" ? "red" : d.approvalStatus === "sent" ? "amber" : "gray"}` }, d.approvalStatus),
+            d.approvalNote ? el("span", { class: "small muted", style: { marginLeft: "8px" } }, d.approvalNote) : null,
+          )) : null,
+        ),
+        d.disputes?.length ? el("table", { class: "data", style: { marginTop: "8px" } },
+          el("thead", {}, el("tr", {}, el("th", {}, "Date"), el("th", {}, "Status"), el("th", { class: "num" }, "Amount"), el("th", {}, "Note"))),
+          el("tbody", {}, ...d.disputes.map((dx) => el("tr", {},
+            el("td", { class: "small muted" }, fmtDate(dx.date) || "—"),
+            el("td", {}, el("span", { class: `pill ${dx.status === "won" ? "green" : dx.status === "lost" ? "red" : "amber"}` }, dx.status || "open")),
+            el("td", { class: "num" }, fmtMoney(dx.amount)),
+            el("td", { class: "small muted truncate" }, dx.note || "—"),
+          ))),
+        ) : null,
+      ) : null,
+      // Exclusivity & rights (#10).
+      (d.exclusivityFrom || d.exclusivityTo || d.usageRightsUntil) && el("div", { class: "card" },
+        el("h3", {}, "Exclusivity & rights"),
+        el("div", { class: "detail-grid" },
+          d.exclusivityFrom || d.exclusivityTo ? kv("Exclusivity window", `${fmtDate(d.exclusivityFrom) || "—"} → ${fmtDate(d.exclusivityTo) || "—"}`) : null,
+          d.usageRightsUntil ? kv("Usage rights until", fmtDate(d.usageRightsUntil)) : null,
+        ),
+      ),
+      // Line items (#3 / #10).
+      d.lineItems?.length ? el("div", { class: "card" },
+        el("h3", {}, "Line items"),
+        el("table", { class: "data" },
+          el("thead", {}, el("tr", {}, el("th", {}, "Description"), el("th", { class: "num" }, "Amount"))),
+          el("tbody", {},
+            ...d.lineItems.map((li) => el("tr", {},
+              el("td", {}, li.desc || "—"),
+              el("td", { class: "num" }, fmtMoney(li.amount)),
+            )),
+            el("tr", { style: { borderTop: "2px solid var(--line-2)" } },
+              el("td", { style: { fontWeight: 700 } }, "Total"),
+              el("td", { class: "num", style: { fontWeight: 700 } }, fmtMoney(d.lineItems.reduce((s, li) => s + (+li.amount || 0), 0))),
+            ),
+          ),
+        ),
+      ) : null,
       (d.invoiceTo || d.transactionId || d.notes) && el("div", { class: "card" },
         el("h3", {}, "Other"),
         el("div", { class: "detail-grid" },
