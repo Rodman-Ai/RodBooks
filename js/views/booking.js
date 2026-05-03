@@ -1,7 +1,7 @@
 // Local availability / booking calendar (#96). Pure-client view of your
 // month: deal milestones + draft due dates + manual blocked windows.
 
-import { el, fmtMoney, fmtDateShort, parseDate, netFee } from "../utils.js";
+import { el, fmtMoney, fmtDateShort, parseDate, netFee, kpi } from "../utils.js";
 import { Deals, Settings, subscribe } from "../store.js";
 import { go } from "../router.js";
 
@@ -125,9 +125,3 @@ export default function bookingView() {
   return { node, unmount: unsub };
 }
 
-function kpi(label, value) {
-  return el("div", { class: "card kpi" },
-    el("div", { class: "kpi-sub" }, label),
-    el("div", { class: "kpi-value" }, value),
-  );
-}

@@ -7,6 +7,7 @@
 
 import { Deals, Bills, Settings, TaxPayments } from "./store.js";
 import { fmtMoney, fmtDate, netFee, brandWarmth, escapeHtml } from "./utils.js";
+import { withHtml2Pdf } from "./pdf.js";
 
 export function buildDigestHtml() {
   const since = Date.now() - 7 * 86400000;
@@ -85,17 +86,16 @@ ${newDeals.length === 0 ? `<div class="muted">No new deals booked.</div>` :
 </body></html>`;
 }
 
-export function downloadDigestPdf() {
+export async function downloadDigestPdf() {
   const html = buildDigestHtml();
-  if (!window.html2pdf) { throw new Error("PDF library not loaded yet"); }
   const wrapper = document.createElement("div");
   wrapper.innerHTML = html.replace(/^<!doctype[^>]*>/, "").replace(/<\/?html[^>]*>|<\/?head[^>]*>|<\/?body[^>]*>|<title>[^<]*<\/title>|<meta[^>]*>/gi, "");
-  return window.html2pdf().set({
+  return withHtml2Pdf((html2pdf) => html2pdf().set({
     margin: 8,
     filename: `rodbooks-digest-${new Date().toISOString().slice(0, 10)}.pdf`,
     html2canvas: { scale: 2, backgroundColor: "#ffffff" },
     jsPDF: { unit: "mm", format: "letter", orientation: "portrait" },
-  }).from(wrapper).save();
+  }).from(wrapper).save());
 }
 
 export function previewDigest() {

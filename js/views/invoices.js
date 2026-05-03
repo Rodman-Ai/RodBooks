@@ -5,6 +5,7 @@ import { openDealForm } from "../forms.js";
 import { openModal, toast } from "../ui.js";
 import { downloadIcs } from "../ics.js";
 import { runScheduler } from "../scheduler.js";
+import { withHtml2Pdf } from "../pdf.js";
 
 export default function invoices() {
   const node = el("div", {});
@@ -242,15 +243,16 @@ function copyInvoice(body) {
   navigator.clipboard.writeText(text).then(() => toast("Copied"), () => toast("Copy failed", "warn"));
 }
 
-function downloadInvoicePDF(element, filename) {
-  if (!window.html2pdf) { toast("PDF library not loaded yet", "warn"); return; }
-  window.html2pdf().set({
-    margin: 10,
-    filename,
-    html2canvas: { scale: 2, backgroundColor: "#ffffff" },
-    jsPDF: { unit: "mm", format: "letter", orientation: "portrait" },
-  }).from(element).save();
+async function downloadInvoicePDF(element, filename) {
   toast("Generating PDF…");
+  try {
+    await withHtml2Pdf((html2pdf) => html2pdf().set({
+      margin: 10,
+      filename,
+      html2canvas: { scale: 2, backgroundColor: "#ffffff" },
+      jsPDF: { unit: "mm", format: "letter", orientation: "portrait" },
+    }).from(element).save());
+  } catch (e) { toast(e.message, "warn", 4000); }
 }
 
 function printInvoice(html) {

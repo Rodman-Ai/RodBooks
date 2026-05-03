@@ -1,9 +1,9 @@
-import { el, todayISO, csvFromString } from "../utils.js";
+import { el, todayISO, csvFromString, field } from "../utils.js";
 import { Settings, exportJSON, importJSON, resetAll, loadSampleData, downloadFile, subscribe, Deals, Bills, Contacts, Snapshots, isVaultEncrypted, enableEncryptionWithPassphrase, disableEncryption } from "../store.js";
 import { confirmDialog, toast, openModal } from "../ui.js";
 import { setTheme } from "../theme.js";
 import { setPasscode, isLockEnabled, lock as lockNow } from "../lock.js";
-import { listProfiles, getActiveProfileId, createProfile, renameProfile, deleteProfile, setActiveProfile } from "../profiles.js";
+import { listProfiles, getActiveProfileId, createProfile, renameProfile, deleteProfile, activateProfile } from "../profiles.js";
 
 export default function settings() {
   const node = el("div", {});
@@ -71,6 +71,16 @@ export default function settings() {
       file.addEventListener("change", async () => {
         const f = file.files?.[0]; if (!f) return;
         const text = await f.text();
+        const ok = await confirmDialog({
+          title: "Replace all data with this JSON?",
+          body: el("div", {},
+            el("div", {}, `File: ${f.name} (${Math.round(f.size / 1024)} KB)`),
+            el("div", { class: "small muted", style: { marginTop: 6 } },
+              "This wipes the current profile and replaces it with the file's contents. Take a snapshot first if you want a rollback point."),
+          ),
+          danger: true, confirmLabel: "Replace data",
+        });
+        if (!ok) return;
         try {
           importJSON(text);
           toast("Imported");
@@ -279,7 +289,7 @@ function profileSection(rerender) {
         el("td", {}, p.name + (p.id === active ? " · active" : "")),
         el("td", {},
           el("div", { class: "row" },
-            p.id !== active && el("button", { class: "btn sm", onclick: () => { setActiveProfile(p.id); location.reload(); } }, "Switch"),
+            p.id !== active && el("button", { class: "btn sm", onclick: () => activateProfile(p.id) }, "Switch"),
             el("button", { class: "btn sm", onclick: () => {
               const n = prompt("Rename profile", p.name);
               if (n) { renameProfile(p.id, n); toast("Renamed"); rerender && rerender(); }
@@ -295,7 +305,7 @@ function profileSection(rerender) {
     el("div", { style: { marginTop: 12 } },
       el("button", { class: "btn primary", onclick: () => {
         const name = prompt("New profile name");
-        if (name) { const p = createProfile(name); setActiveProfile(p.id); location.reload(); }
+        if (name) { const p = createProfile(name); activateProfile(p.id); }
       } }, "+ New profile"),
     ),
   );
@@ -461,7 +471,4 @@ function sel(value, options) {
     s.append(opt);
   }
   return s;
-}
-function field(label, control, full) {
-  return el("div", { class: `field ${full ? "full" : ""}` }, el("label", {}, label), control);
 }

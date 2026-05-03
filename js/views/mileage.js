@@ -1,4 +1,4 @@
-import { el, fmtMoney, fmtDate, todayISO, debounce } from "../utils.js";
+import { el, fmtMoney, fmtDate, todayISO, debounce, kpi, field } from "../utils.js";
 import { Mileage, Settings, subscribe } from "../store.js";
 import { openModal, toast, confirmDialog } from "../ui.js";
 
@@ -157,13 +157,3 @@ function openMileageForm(trip) {
   setTimeout(() => miles.focus(), 30);
 }
 
-function field(label, control, full) {
-  return el("div", { class: `field ${full ? "full" : ""}` }, el("label", {}, label), control);
-}
-function kpi(label, value, sub) {
-  return el("div", { class: "card kpi" },
-    el("div", { class: "kpi-sub" }, label),
-    el("div", { class: "kpi-value" }, value),
-    sub && el("div", { class: "kpi-sub" }, sub),
-  );
-}

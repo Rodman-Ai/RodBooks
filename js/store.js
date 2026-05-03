@@ -192,11 +192,15 @@ function migrate(data) {
 
 function write() {
   const plain = JSON.stringify(cache);
+  // Capture the target storage key at dispatch time so an in-flight async
+  // encrypt from the previous profile can't write into the new profile's
+  // blob during a profile switch. (Audit defect #7.)
+  const targetKey = KEY();
   if (_encrypted && _encryptCb) {
     // Encrypt asynchronously; UI is already updated from in-memory cache.
-    _encryptCb(plain).then((blob) => localStorage.setItem(KEY(), blob)).catch((e) => console.warn("encrypt write failed:", e));
+    _encryptCb(plain).then((blob) => localStorage.setItem(targetKey, blob)).catch((e) => console.warn("encrypt write failed:", e));
   } else {
-    localStorage.setItem(KEY(), plain);
+    localStorage.setItem(targetKey, plain);
   }
   subscribers.forEach((fn) => {
     try { fn(cache); } catch (e) { console.error(e); }
